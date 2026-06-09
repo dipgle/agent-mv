@@ -1,0 +1,50 @@
+{
+  "name": "Acme Analytics",
+  "tagline": "Real-time insights for modern teams",
+
+  "colors": {
+    "primary": "#0066ff",
+    "secondary": "#ffffff",
+    "accent": "#ff5500",
+    "bg_dark": "#0a0a0a",
+    "bg_light": "#fafafa",
+    "text_dark": "#111111",
+    "text_light": "#f5f5f5"
+  },
+
+  "fonts": {
+    "title": "Inter Bold",
+    "body": "Inter Regular",
+    "caption": "JetBrains Mono",
+    "fallback": "system-ui, sans-serif"
+  },
+
+  "voice_tone": "friendly, confident, technical but not jargon-heavy",
+  "voice_persona": "young product expert explaining to peer",
+  "voice_speed": "medium-fast",
+
+  "music_mood": ["uplifting", "modern", "minimal", "tech"],
+  "music_bpm_range": [100, 130],
+  "music_avoid": ["aggressive", "dramatic", "orchestral"],
+
+  "logo_path": "./assets/logo.svg",
+  "logo_safe_area_pct": 5,
+  "logo_position": "bottom-right",
+
+  "shot_style": {
+    "color_grade": "clean, slightly desaturated, cool tones",
+    "framing": "centered, breathing room, minimal clutter",
+    "motion": "smooth, intentional, never frenetic"
+  },
+
+  "voice_reference": {
+    "wav_path": "./assets/voice_reference.wav",
+    "transcript": "Welcome to our product walkthrough. Today we'll explore."
+  },
+
+  "do_not_use": [
+    "competitor names",
+    "negative comparisons",
+    "stock cliché shots (handshake, lightbulb)"
+  ]
+}

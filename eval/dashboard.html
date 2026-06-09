@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Video Pipeline — Eval Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font: 14px ui-sans-serif, system-ui; margin: 0; padding: 16px;
+         background: #0a0a0a; color: #e5e5e5; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #222; }
+  .tab { padding: 8px 14px; background: transparent; color: #888; border: none;
+         border-bottom: 2px solid transparent; cursor: pointer; font: inherit; }
+  .tab.active { color: #fff; border-bottom-color: #60a5fa; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #141414; border: 1px solid #2a2a2a; border-radius: 6px; padding: 12px; }
+  .card h2 { font-size: 12px; margin: 0 0 8px; color: #a3a3a3; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #222; }
+  th { color: #888; font-weight: 500; }
+  .pass { color: #4ade80; } .fail { color: #f87171; } .warn { color: #fbbf24; }
+  code { background: #1f1f1f; padding: 1px 4px; border-radius: 3px; }
+  .empty { color: #555; font-style: italic; padding: 20px; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>Video Pipeline — Eval Dashboard</h1>
+
+<div class="tabs">
+  <button class="tab active" data-panel="text">Text</button>
+  <button class="tab" data-panel="image">Image</button>
+  <button class="tab" data-panel="video">Video</button>
+  <button class="tab" data-panel="audio">Audio</button>
+  <button class="tab" data-panel="final">Final</button>
+  <button class="tab" data-panel="swap">Swap queue</button>
+</div>
+
+<div class="panel active" id="text">
+  <div class="grid">
+    <div class="card">
+      <h2>Text leaderboard — Planner/Reviewer</h2>
+      <table><thead><tr><th>Role</th><th>Model</th><th>Pass</th><th>Latency</th><th>Cost</th><th>N</th></tr></thead>
+      <tbody><tr><td colspan="6" class="empty">Loading...</td></tr></tbody></table>
+    </div>
+    <div class="card"><h2>Agreement matrix</h2><div class="empty">TBD</div></div>
+  </div>
+</div>
+
+<div class="panel" id="image">
+  <div class="grid">
+    <div class="card">
+      <h2>Keyframe leaderboard</h2>
+      <table><thead><tr><th>Model</th><th>CLIP</th><th>Aesthetic</th><th>Render s</th><th>N</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody></table>
+    </div>
+    <div class="card"><h2>CLIP-score scatter</h2><div class="empty">Chart TBD</div></div>
+  </div>
+</div>
+
+<div class="panel" id="video">
+  <div class="grid">
+    <div class="card">
+      <h2>Motion leaderboard</h2>
+      <table><thead><tr><th>Model</th><th>CLIP-temporal</th><th>Flicker</th><th>Render s</th><th>N</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody></table>
+    </div>
+    <div class="card"><h2>Flicker rate trend</h2><div class="empty">Chart TBD</div></div>
+  </div>
+</div>
+
+<div class="panel" id="audio">
+  <div class="grid">
+    <div class="card">
+      <h2>Voice leaderboard</h2>
+      <table><thead><tr><th>Model</th><th>UTMOS</th><th>WER</th><th>RTF</th><th>N</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Music BPM alignment</h2>
+      <table><thead><tr><th>Model</th><th>BPM Δ</th><th>Mood match</th><th>N</th></tr></thead>
+      <tbody><tr><td colspan="4" class="empty">No data</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="final">
+  <div class="grid">
+    <div class="card">
+      <h2>Final video quality</h2>
+      <table><thead><tr><th>Feature</th><th>Score</th><th>Pacing</th><th>Audio sync</th><th>Brand</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Watch-time vs render cost</h2>
+      <div class="empty">Scatter TBD</div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="swap">
+  <div class="card">
+    <h2>Swap candidates queue</h2>
+    <table><thead><tr><th>Modality</th><th>Incumbent</th><th>Challenger</th><th>Δ%</th><th>N</th><th>Status</th></tr></thead>
+    <tbody><tr><td colspan="6" class="empty">No candidates pending</td></tr></tbody></table>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.tab').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById(b.dataset.panel).classList.add('active');
+  };
+});
+
+// TODO: Poll local SQL HTTP endpoint similar to UIUX dashboard.
+// Each tab fetches model_runs filtered by modality.
+</script>
+
+</body>
+</html>

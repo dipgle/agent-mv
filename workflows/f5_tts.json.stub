@@ -1,0 +1,12 @@
+{
+  "__stub__": true,
+  "__instructions__": [
+    "Replace with real F5-TTS workflow.",
+    "Source: https://github.com/SWivid/F5-TTS",
+    "Required inputs:",
+    "  - target text (the voiceover script line)",
+    "  - reference audio (clone voice from short sample 5-15s)",
+    "  - reference text (transcript of reference audio)",
+    "Required output: audio (WAV 24kHz)"
+  ]
+}

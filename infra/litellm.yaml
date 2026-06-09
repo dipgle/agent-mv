@@ -1,0 +1,76 @@
+# LiteLLM proxy for video pipeline text orchestration only.
+# Visual gen (Flux/LTX/Wan/F5/Whisper) goes through ComfyUI directly, not LiteLLM.
+
+model_list:
+  # ─── Tier B Local Frontier ───────────────────────────────────────────────
+  - model_name: planner
+    litellm_params:
+      model: ollama/qwen3:32b
+      api_base: http://localhost:11434
+
+  - model_name: reviewer
+    litellm_params:
+      model: ollama/deepseek-r1:14b
+      api_base: http://localhost:11434
+
+  - model_name: researcher-vision
+    litellm_params:
+      model: ollama/qwen2.5-vl:7b
+      api_base: http://localhost:11434
+
+  - model_name: researcher-text
+    litellm_params:
+      model: ollama/qwen3:8b
+      api_base: http://localhost:11434
+
+  # ─── Tier A− Free Cloud ──────────────────────────────────────────────────
+  - model_name: researcher-bulk
+    litellm_params:
+      model: openrouter/google/gemini-flash:free   # 1M ctx — bulk transcribe parse
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # ─── Tier A Strong Cloud ─────────────────────────────────────────────────
+  - model_name: reviewer-paid
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # ─── Tier S Frontier (Planner taste + Adjudicator brand) ─────────────────
+  - model_name: planner-script-hard
+    litellm_params:
+      model: anthropic/claude-opus-4-7    # narrative taste — script iterate
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: reviewer-frames
+    litellm_params:
+      model: anthropic/claude-opus-4-7    # vision — sample frame review
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: adjudicator
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: architect
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  max_budget: 100              # USD/month — video text LLM only
+  budget_duration: 30d
+  cache: true
+  cache_params:
+    type: redis
+    host: localhost
+    port: 6379
+  num_retries: 2
+  request_timeout: 120
+  callbacks: ["log_to_sqlite"]
+
+general_settings:
+  master_key: sk-local-only-not-public
+  database_url: "sqlite:///./logs/litellm.sqlite"
+
+# NOTE: visual cloud gen (Runway/Pika) NOT in this config — separate billing
+# track. Use dedicated client when escalating, cap separately at $20/video.

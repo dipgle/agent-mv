@@ -1,0 +1,48 @@
+{
+  "name": "<YOUR BRAND NAME>",
+  "tagline": "<one-line value prop>",
+
+  "colors": {
+    "primary": "#RRGGBB",
+    "secondary": "#RRGGBB",
+    "accent": "#RRGGBB",
+    "bg_dark": "#0a0a0a",
+    "bg_light": "#fafafa",
+    "text_dark": "#111111",
+    "text_light": "#f5f5f5"
+  },
+
+  "fonts": {
+    "title": "<font name>",
+    "body": "<font name>",
+    "caption": "<font name>",
+    "fallback": "system-ui, sans-serif"
+  },
+
+  "voice_tone": "<adjectives separated by comma — e.g. friendly, confident>",
+  "voice_persona": "<who is speaking — e.g. founder, expert, peer>",
+  "voice_speed": "<slow|medium|medium-fast|fast>",
+
+  "music_mood": ["<mood tag 1>", "<mood tag 2>"],
+  "music_bpm_range": [100, 130],
+  "music_avoid": ["<avoid tag 1>"],
+
+  "logo_path": "./assets/logo.svg",
+  "logo_safe_area_pct": 5,
+  "logo_position": "<top-left|top-right|bottom-left|bottom-right|center>",
+
+  "shot_style": {
+    "color_grade": "<description>",
+    "framing": "<description>",
+    "motion": "<description>"
+  },
+
+  "voice_reference": {
+    "wav_path": "./assets/voice_reference.wav",
+    "transcript": "<exact text spoken in reference wav>"
+  },
+
+  "do_not_use": [
+    "<things the brand never does>"
+  ]
+}

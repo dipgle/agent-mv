@@ -1,0 +1,13 @@
+{
+  "__stub__": true,
+  "__instructions__": [
+    "Replace with real LTX-Video image-to-video workflow.",
+    "Source: https://github.com/Lightricks/ComfyUI-LTXVideo",
+    "Required inputs:",
+    "  - LoadImage (path to keyframe PNG)",
+    "  - text prompt (motion description)",
+    "  - num_frames (compute from duration_s * fps)",
+    "  - fps (default 24)",
+    "Required output: SaveVideo (mp4)"
+  ]
+}

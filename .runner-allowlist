@@ -1,0 +1,43 @@
+# video — file-queue runner allowlist.
+#
+# Daemon: ~/Documents/projects/scripts/runner.sh + daemon-ctl.sh.
+# Reload after edit: bash ~/Documents/projects/scripts/daemon-ctl.sh restart <project>
+#
+# Format:
+#   [exact]   — whole command must match
+#   [prefix]  — match command start
+#   Comments with #; blank lines ignored.
+#
+# This is a SAFE STARTER — git read-only + ls/tail/grep + read docs/memory.
+# Add cargo/npm/docker/etc as the project grows. Keep this file under source
+# control once the project is git-init'd.
+
+[exact]
+# Git read-only diagnostics
+git status
+git log --oneline -5
+git log --oneline -10
+git log --oneline -20
+git log -1 --oneline
+git rev-parse HEAD
+git rev-parse --short HEAD
+git diff --stat
+git diff --stat HEAD
+git branch
+git branch -a
+git remote -v
+
+[prefix]
+# Read-only file inspection (cwd = <project>/scripts/)
+ls
+tail
+head
+grep
+wc
+find docs/
+find memory/
+cat ../docs/
+cat ../memory/
+cat ../PLAN.md
+cat ../TODO.md
+cat ../CLAUDE.md

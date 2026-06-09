@@ -1,0 +1,25 @@
+{
+  "_comment_": [
+    "DO NOT commit a populated .mcp.json — paths are absolute per user machine.",
+    "",
+    "To regenerate .mcp.json after cloning this repo:",
+    "  Option A (recommended): clone init-project + run adopt:",
+    "    git clone https://github.com/dipgle/init-project ~/Documents/projects/AI/init-project",
+    "    ~/Documents/projects/AI/init-project/startup.sh .  # this writes .mcp.json",
+    "  Option B: copy this template + replace <PROJECT_ABS_PATH> and <INIT_PROJECT_ABS_PATH>.",
+    "",
+    "Without .mcp.json the orchestrator still runs — MCP project-agent is only used by",
+    "AI assistants (Claude Code / Cursor / Cline) for context briefing and devlog calls."
+  ],
+  "mcpServers": {
+    "project-agent": {
+      "type": "stdio",
+      "command": "<INIT_PROJECT_ABS_PATH>/mcp/project-agent-rs/target/release/project-agent",
+      "args": [],
+      "env": {
+        "PROJECT_MEMORY_DIR": "<PROJECT_ABS_PATH>/memory",
+        "PROJECT_LOG_DIR": "<PROJECT_ABS_PATH>/logs"
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+# <project-name> — per-project runner hook (OPTIONAL).
+#
+# Sourced by ~/Documents/projects/scripts/runner.sh after allowlist parse.
+# Define `eval_cmd <cmd>` to override the default eval. Useful when a
+# command needs a specific cwd, env var prefix, or post-processing that
+# pure allowlist matching can't express.
+#
+# DELETE THIS FILE if your project doesn't need custom eval behavior —
+# the runner has a default `eval_cmd() { eval "$1"; }` it uses when no
+# hook file exists.
+#
+# Example overrides:
+#
+#   # Run wasm-pack from a sibling dir
+#   eval_cmd() {
+#     local cmd="$1"
+#     if [[ "$cmd" == wasm-pack* ]]; then
+#       ( cd ../my-wasm-crate && eval "$cmd" )
+#     else
+#       eval "$cmd"
+#     fi
+#   }
+#
+#   # Inject env vars for a specific command family
+#   eval_cmd() {
+#     local cmd="$1"
+#     case "$cmd" in
+#       "npm test "*) RUST_LOG=info eval "$cmd" ;;
+#       *)            eval "$cmd" ;;
+#     esac
+#   }

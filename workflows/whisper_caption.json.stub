@@ -1,0 +1,12 @@
+{
+  "__stub__": true,
+  "__instructions__": [
+    "Replace with real Whisper STT workflow.",
+    "Source: https://github.com/ltdrdata/ComfyUI-Whisper",
+    "Required inputs:",
+    "  - audio file (WAV)",
+    "  - language ('vi', 'en', ...)",
+    "  - output format: 'srt'",
+    "Required output: SRT file with timestamps"
+  ]
+}

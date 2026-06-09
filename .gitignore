@@ -1,0 +1,64 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.so
+venv/
+.venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node (if GUI launcher added later)
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Secrets / env
+.env
+.env.local
+.env.*.local
+
+# SQLite WAL/SHM transients (keep the main .sqlite seed)
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+
+# Runtime output
+out/
+*.log
+crash/
+
+# ComfyUI install (cloned at setup, NOT committed — ~60GB of weights)
+infra/comfy/
+
+# Local LiteLLM proxy DB
+logs/litellm.sqlite*
+
+# init-project daemon runtime
+scripts/.cmd-queue/
+scripts/.cmd-results/
+
+# Project-specific MCP config (regenerated per machine via init-project adopt)
+.mcp.json
+
+# Real ComfyUI workflows (user-specific node IDs; keep stubs only)
+workflows/*.json
+!workflows/*.json.stub
+
+# Build artifacts (if Windows installer added later)
+dist/
+build/
+*.exe
+*.msi
