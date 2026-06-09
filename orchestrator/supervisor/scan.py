@@ -18,9 +18,10 @@ events kind='external_finding'.
 from __future__ import annotations
 import json
 import os
+import re
 import sys
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -32,6 +33,10 @@ from lib import devlog  # noqa: E402
 
 BENCHMARKS = Path("eval/benchmarks")
 REPORTS = Path("eval/reports")
+
+# Ratelimit-aware retry helper.
+MAX_RETRIES = 2
+RETRY_DELAYS = [2, 8]  # exponential backoff: 2s, 8s
 
 
 # ─── 1. HuggingFace trending ──────────────────────────────────────────────
@@ -214,6 +219,234 @@ def scan_comfy_nodes() -> list[dict]:
     return findings
 
 
+# ─── 5. Civitai trending ─────────────────────────────────────────────────
+def scan_civitai_trending() -> list[dict]:
+    """Query Civitai API for trending LoRAs and checkpoints."""
+    findings = []
+    types = ["LORA", "Checkpoint"]
+
+    for model_type in types:
+        params = {
+            'sort': 'Most Downloaded',
+            'period': 'Week',
+            'type': model_type,
+            'limit': 20
+        }
+        url = f"https://civitai.com/api/v1/models?{urlencode(params)}"
+
+        for retry in range(MAX_RETRIES + 1):
+            try:
+                r = requests.get(url, timeout=20)
+                if r.status_code == 429 or r.status_code == 503:
+                    if retry < MAX_RETRIES:
+                        delay = RETRY_DELAYS[retry]
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise Exception(f"Rate limited after {MAX_RETRIES} retries")
+                r.raise_for_status()
+                data = r.json()
+                items = data.get("items", [])
+
+                for item in items:
+                    findings.append({
+                        "source": "civitai",
+                        "name": item.get("name", ""),
+                        "type": model_type,
+                        "downloads": item.get("stats", {}).get("downloadCount", 0),
+                        "base_model": item.get("modelVersions", [{}])[0].get("baseModel", "")
+                        if item.get("modelVersions") else "",
+                        "url": f"https://civitai.com/models/{item.get('id', '')}",
+                    })
+
+                devlog.log_source(
+                    "supervisor",
+                    url=url,
+                    takeaway=f"Civitai {model_type}: {len(items)} trending",
+                )
+                break  # success
+            except Exception as e:
+                if retry == MAX_RETRIES:
+                    devlog.append("scan_error", "supervisor", "system", "civitai",
+                                  {"type": model_type, "error": str(e)})
+                    break
+
+        time.sleep(1)  # be polite
+
+    return findings
+
+
+# ─── 6. Replicate trending ───────────────────────────────────────────────
+def scan_replicate_trending() -> list[dict]:
+    """Query Replicate explore page for trending video/audio models."""
+    findings = []
+    url = "https://replicate.com/explore"
+
+    for retry in range(MAX_RETRIES + 1):
+        try:
+            r = requests.get(url, timeout=20, headers={
+                "User-Agent": "Mozilla/5.0 (agent-mv supervisor scan)"
+            })
+            if r.status_code == 429 or r.status_code == 503:
+                if retry < MAX_RETRIES:
+                    delay = RETRY_DELAYS[retry]
+                    time.sleep(delay)
+                    continue
+                else:
+                    raise Exception(f"Rate limited after {MAX_RETRIES} retries")
+            r.raise_for_status()
+
+            # Extract model slugs from HTML (basic pattern: /model-creator/model-name)
+            pattern = r'href="(/[a-z0-9-]+/[a-z0-9-]+)"'
+            matches = re.findall(pattern, r.text)
+
+            for match in list(set(matches))[:20]:  # dedup and limit
+                slug = match.strip("/")
+                findings.append({
+                    "source": "replicate",
+                    "slug": slug,
+                    "category": "video_audio",
+                    "url": f"https://replicate.com{match}",
+                })
+
+            devlog.log_source(
+                "supervisor",
+                url=url,
+                takeaway=f"Replicate trending: {len(matches)} models extracted",
+            )
+            break  # success
+        except Exception as e:
+            if retry == MAX_RETRIES:
+                devlog.append("scan_error", "supervisor", "system", "replicate",
+                              {"error": str(e)})
+                break
+
+    return findings
+
+
+# ─── 7. GitHub trending ML ───────────────────────────────────────────────
+def scan_github_trending_ml() -> list[dict]:
+    """Query GitHub API for trending ML/video/audio repos."""
+    findings = []
+    topics = [
+        "video-generation", "text-to-video", "image-to-video",
+        "tts", "audio-generation", "comfyui"
+    ]
+
+    # Calculate date 7 days ago for pushed:> filter
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+    for topic in topics:
+        query = f"topic:{topic} pushed:>{week_ago}"
+        params = {
+            'q': query,
+            'sort': 'stars',
+            'order': 'desc',
+            'per_page': 20
+        }
+        url = f"https://api.github.com/search/repositories?{urlencode(params)}"
+
+        for retry in range(MAX_RETRIES + 1):
+            try:
+                r = requests.get(url, timeout=20)
+                if r.status_code == 429 or r.status_code == 503:
+                    if retry < MAX_RETRIES:
+                        delay = RETRY_DELAYS[retry]
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise Exception(f"Rate limited after {MAX_RETRIES} retries")
+                r.raise_for_status()
+                data = r.json()
+                items = data.get("items", [])
+
+                for item in items:
+                    findings.append({
+                        "source": "github",
+                        "repo": item.get("full_name", ""),
+                        "stars_week": item.get("stargazers_count", 0),
+                        "description": item.get("description", "")[:200] or "",
+                        "topics": item.get("topics", []),
+                        "url": item.get("html_url", ""),
+                    })
+
+                devlog.log_source(
+                    "supervisor",
+                    url=url,
+                    takeaway=f"GitHub topic={topic}: {len(items)} repos",
+                )
+                break  # success
+            except Exception as e:
+                if retry == MAX_RETRIES:
+                    devlog.append("scan_error", "supervisor", "system", "github",
+                                  {"topic": topic, "error": str(e)})
+                    break
+
+        time.sleep(1)  # be polite with GitHub API
+
+    return findings
+
+
+# ─── 8. Reddit r/StableDiffusion ─────────────────────────────────────────
+def scan_reddit_stable_diffusion() -> list[dict]:
+    """Scan top posts from r/StableDiffusion this week."""
+    findings = []
+    url = "https://www.reddit.com/r/StableDiffusion/top.json"
+
+    params = {"t": "week", "limit": 20}
+    full_url = f"{url}?{urlencode(params)}"
+
+    for retry in range(MAX_RETRIES + 1):
+        try:
+            r = requests.get(full_url, timeout=20, headers={
+                "User-Agent": "agent-mv supervisor scan (+github.com/dipgle/agent-mv)"
+            })
+            if r.status_code == 429 or r.status_code == 503:
+                if retry < MAX_RETRIES:
+                    delay = RETRY_DELAYS[retry]
+                    time.sleep(delay)
+                    continue
+                else:
+                    raise Exception(f"Rate limited after {MAX_RETRIES} retries")
+            r.raise_for_status()
+
+            data = r.json()
+            posts = data.get("data", {}).get("children", [])
+
+            # Keywords that suggest a release/announcement.
+            release_keywords = ["release", "announce", "v2", "v3", "new", "launch"]
+
+            for post_wrapper in posts:
+                post = post_wrapper.get("data", {})
+                title = post.get("title", "").lower()
+
+                # Filter by heuristic: title contains release-like keywords.
+                is_release = any(kw in title for kw in release_keywords)
+
+                if is_release:
+                    findings.append({
+                        "source": "reddit",
+                        "title": post.get("title", ""),
+                        "score": post.get("score", 0),
+                        "url": f"https://reddit.com{post.get('permalink', '')}",
+                        "flair": post.get("link_flair_text", ""),
+                    })
+
+            devlog.log_source(
+                "supervisor",
+                url=full_url,
+                takeaway=f"Reddit r/StableDiffusion: {len(findings)} release posts",
+            )
+            break  # success
+        except Exception as e:
+            if retry == MAX_RETRIES:
+                devlog.append("scan_error", "supervisor", "system", "reddit",
+                              {"error": str(e)})
+                break
+
+    return findings
+
+
 # ─── Aggregator ──────────────────────────────────────────────────────────
 def main():
     BENCHMARKS.mkdir(parents=True, exist_ok=True)
@@ -227,6 +460,10 @@ def main():
         "arxiv": scan_arxiv(),
         "pricing_changes": scan_pricing(),
         "comfy_nodes_new": scan_comfy_nodes(),
+        "civitai_trending": scan_civitai_trending(),
+        "replicate_trending": scan_replicate_trending(),
+        "github_trending_ml": scan_github_trending_ml(),
+        "reddit_stablediffusion": scan_reddit_stable_diffusion(),
     }
 
     # Persist for propose.py to consume
@@ -255,6 +492,10 @@ def main():
             "arxiv_n": len(all_findings["arxiv"]),
             "pricing_changes_n": len(all_findings["pricing_changes"]),
             "comfy_new_n": len(all_findings["comfy_nodes_new"]),
+            "civitai_n": len(all_findings["civitai_trending"]),
+            "replicate_n": len(all_findings["replicate_trending"]),
+            "github_n": len(all_findings["github_trending_ml"]),
+            "reddit_n": len(all_findings["reddit_stablediffusion"]),
         },
     )
 
@@ -264,6 +505,10 @@ def main():
     print(f"  arxiv:        {len(all_findings['arxiv'])}")
     print(f"  pricing chg:  {len(all_findings['pricing_changes'])}")
     print(f"  comfy new:    {len(all_findings['comfy_nodes_new'])}")
+    print(f"  civitai:      {len(all_findings['civitai_trending'])}")
+    print(f"  replicate:    {len(all_findings['replicate_trending'])}")
+    print(f"  github:       {len(all_findings['github_trending_ml'])}")
+    print(f"  reddit:       {len(all_findings['reddit_stablediffusion'])}")
 
 
 if __name__ == "__main__":

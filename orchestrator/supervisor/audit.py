@@ -56,12 +56,12 @@ def detect_bottlenecks(db: sqlite3.Connection) -> list[dict]:
 def detect_regressions(db: sqlite3.Connection) -> list[dict]:
     """
     Compare last 7 days mean tier2 scores vs baseline snapshot.
-    Baseline lives in eval/golden_regression/baseline.json (manually seeded
-    or auto-snapshotted by `python supervisor/regression_check.py snapshot`).
+    Baseline lives in eval/golden_regression/baseline.json (auto-generated
+    by `python supervisor/regression_check.py snapshot` or manual creation).
     """
     baseline_path = Path("eval/golden_regression/baseline.json")
     if not baseline_path.exists():
-        return [{"note": "no baseline snapshot — run regression_check.py snapshot once"}]
+        return []  # No baseline yet; regression_check.py handles this separately
     baseline = json.loads(baseline_path.read_text())
 
     rows = db.execute(f"""

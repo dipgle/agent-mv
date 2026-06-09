@@ -16,13 +16,16 @@ echo "=== $(date) — daily cron start ==="
 # 1. System audit (bottleneck/regression/waste/reliability)
 python orchestrator/supervisor/audit.py
 
-# 2. Cost roll-up
+# 2. Regression check (compare recent evals vs baseline snapshot)
+python orchestrator/supervisor/regression_check.py check
+
+# 3. Cost roll-up
 python orchestrator/supervisor/cost_rollup.py
 
-# 3. Fetch fresh outcomes for published videos (Tier 4 ground truth)
+# 4. Fetch fresh outcomes for published videos (Tier 4 ground truth)
 python orchestrator/supervisor/fetch_outcomes.py
 
-# 4. Auto-promote any canaries that completed
+# 5. Auto-promote any canaries that completed
 python orchestrator/supervisor/auto_promote.py
 
 echo "=== $(date) — daily cron done ==="

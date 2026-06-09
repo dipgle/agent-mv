@@ -393,3 +393,64 @@ WHERE kind = 'web_chat_call'
   AND datetime(ts) >= datetime('now', '-1 hour')
   AND CAST(json_extract(content, '$.blocked') AS INTEGER) = 0
 GROUP BY provider;
+
+
+-- ─── Regression detection (regression_check.py output) ──────────────────────
+CREATE VIEW IF NOT EXISTS regression_findings AS
+SELECT
+    id,
+    ts AS detected_at,
+    ref_id AS eval_key,
+    CAST(json_extract(content, '$.baseline_mean') AS REAL) AS baseline_mean,
+    CAST(json_extract(content, '$.recent_mean') AS REAL) AS recent_mean,
+    CAST(json_extract(content, '$.drop_pct') AS REAL) AS drop_pct,
+    CAST(json_extract(content, '$.sample_n') AS INTEGER) AS sample_n,
+    json_extract(content, '$.checked_at') AS checked_at
+FROM events
+WHERE kind = 'regression_detected'
+ORDER BY detected_at DESC;
+
+
+-- ─── Checkpoint views (added 2026-06-09) ────────────────────────────────────
+
+-- Steps that were skipped because the checkpoint said they were already done.
+-- Useful for measuring how much time the resume system saves per feature.
+CREATE VIEW IF NOT EXISTS step_skips AS
+SELECT
+    ref_id                                      AS feature_id,
+    DATE(ts)                                    AS day,
+    json_extract(content, '$.step_id')          AS step_id,
+    json_extract(content, '$.reason')           AS skip_reason,
+    json_extract(content, '$.artifact')         AS cached_artifact,
+    COUNT(*)                                    AS skip_count
+FROM events
+WHERE kind = 'step_skipped'
+GROUP BY ref_id, DATE(ts), json_extract(content, '$.step_id');
+
+-- Steps that crashed (ComfyUI 500, connection error, etc.) with error detail.
+-- Useful for identifying flaky models or infrastructure problems.
+CREATE VIEW IF NOT EXISTS step_crashes AS
+SELECT
+    id,
+    ts,
+    ref_id                                          AS feature_id,
+    json_extract(content, '$.step_id')              AS step_id,
+    json_extract(content, '$.error_class')          AS error_class,
+    CAST(json_extract(content, '$.crash_n') AS INTEGER) AS crash_n,
+    -- Truncate traceback to first 500 chars so the view stays scannable.
+    SUBSTR(json_extract(content, '$.traceback'), 1, 500) AS traceback_excerpt
+FROM events
+WHERE kind = 'step_crashed'
+ORDER BY ts DESC;
+
+-- Checkpoint repair events: steps that were invalidated because their
+-- artifact file was deleted from disk between runs.
+CREATE VIEW IF NOT EXISTS checkpoint_repairs AS
+SELECT
+    ts,
+    ref_id                                  AS feature_id,
+    json_extract(content, '$.step_id')      AS step_id,
+    json_extract(content, '$.reason')       AS reason
+FROM events
+WHERE kind = 'checkpoint_repair'
+ORDER BY ts DESC;

@@ -22,104 +22,105 @@ Video render
 
 ## Part 1: Regression Baseline (Snapshot)
 
-**Purpose:** Establish a frozen baseline per modality to detect drift.
+**Purpose:** Establish a frozen baseline of evaluation scores per (evaluator, dimension) to detect quality drift.
 
-**Status:** Planned, not yet shipped. This section documents the intended workflow.
+**Status:** Shipped 2026-06-09. Embedded in daily cron after audit.py.
 
-### Seeding a Baseline
+### Creating a Baseline Snapshot
 
-When you have a "golden set" of videos that represent desired quality:
+The regression check system maintains a baseline of mean/stddev for every eval dimension (e.g., `qwen2.5-vl::aesthetic`, `r1::narrative`). Create the initial snapshot from 30 days of historical eval data:
 
 ```bash
-# (Planned command — not yet implemented)
-python eval/regression_check.py snapshot \
-    --modality keyframe \
-    --model flux-dev \
-    --golden-dir eval/golden/keyframe \
-    --snapshot-name baseline-2026-06 \
-    --output eval/golden_regression/baseline-2026-06.json
+# Create golden baseline from last 30 days
+python orchestrator/supervisor/regression_check.py snapshot
+
+# Output: eval/golden_regression/baseline.json (+ timestamped archive)
 ```
 
-Expected output: `eval/golden_regression/baseline-2026-06.json` containing:
+This snapshot collects all `eval_tier2` and `eval_tier3` events from the past month, groups by (evaluator, dimension), and computes mean/stddev.
+
+Expected output structure (`eval/golden_regression/baseline.json`):
 
 ```json
 {
-  "modality": "keyframe",
-  "model": "flux-dev",
-  "snapshot_date": "2026-06-09",
-  "tests": [
-    {
-      "test_id": "IMG-001",
-      "prompt": "SaaS dashboard blue theme",
-      "metrics": {
-        "clip_score": 0.72,
-        "aesthetic_score": 0.81,
-        "render_time_sec": 24.5,
-        "vram_peak_gb": 18.2
-      }
+  "snapshot_at": "2026-06-09",
+  "baseline": {
+    "qwen2.5-vl::aesthetic": {
+      "mean": 0.78,
+      "stddev": 0.08,
+      "n": 42
     },
-    {
-      "test_id": "IMG-002",
-      ...
+    "r1::narrative": {
+      "mean": 0.85,
+      "stddev": 0.06,
+      "n": 38
     }
-  ]
+  }
 }
 ```
 
-### Running Regression Tests
+### Running Daily Regression Checks
 
-After snapshot, each render compares against baseline:
+The daily cron (02:00 local) automatically calls:
 
 ```bash
-# (Planned)
-python eval/regression_check.py compare \
-    --golden-dir eval/golden/keyframe \
-    --snapshot-name baseline-2026-06 \
-    --latest-output out/VID-001/shots/01_keyframe.png \
-    --model flux-dev
+python orchestrator/supervisor/regression_check.py check
 ```
 
-Output: Pass/Warn/Fail
-- **Pass**: Metrics within 5% of baseline
-- **Warn**: Metrics 5–15% drift (investigate)
-- **Fail**: Metrics >15% drift (model degraded or hardware issue)
+This compares **last 7 days** of evals vs the baseline. Any dimension that dropped >5% triggers a `regression_detected` event.
 
-Example regression report (in `eval/reports/regression_*.md`):
+Example output in `eval/reports/regression_2026-06-09.md`:
 
 ```markdown
-# Regression Report — 2026-06-09
+# Regression Check — 2026-06-09
 
-## Keyframe (Flux)
-- Baseline (2026-06): avg CLIP=0.72
-- Latest (VID-001): CLIP=0.71 (−1.4% ✓ OK)
-- Latest (VID-002): CLIP=0.68 (−5.6% ⚠ WARN)
-- Latest (VID-003): CLIP=0.60 (−16.7% ✗ FAIL)
+Baseline: 2026-06-01
+Check window: last 7 days
+Threshold: >5% drop = regression
 
-→ Action: Investigate VID-003; check Flux seed/sampler consistency
+## Regressions detected: 1
+
+| Key | Baseline | Recent | Drop % | N |
+|---|---|---|---|---|
+| `qwen2.5-vl::aesthetic` | 0.78 | 0.73 | 6.41% | 8 |
 ```
 
-### When to Re-snapshot
+Exit code: 0 (healthy), 2 (regression detected, alert ops).
+
+### Re-snapshotting
 
 Re-snapshot when:
-1. You upgrade the model (Flux → Flux Pro)
-2. You change inference settings significantly (sampler, steps)
-3. Hardware changes (new GPU, different VRAM constraint)
+1. You significantly improve evaluator quality (e.g., upgrade Qwen → Qwen 3)
+2. You recalibrate panel weights (outcome calibration)
+3. You want to ignore old "bad" data and reset baseline
 
 ```bash
-# Fresh baseline for new hardware
-python eval/regression_check.py snapshot \
-    --modality keyframe \
-    --model flux-dev \
-    --golden-dir eval/golden/keyframe \
-    --snapshot-name baseline-rtx4090 \
-    --output eval/golden_regression/baseline-rtx4090.json
+# Force overwrite even if baseline <7 days old
+python orchestrator/supervisor/regression_check.py snapshot --force
 ```
 
-Then use this snapshot in future renders:
+### Listing Snapshots
+
+View all baseline archives:
 
 ```bash
-# Compare against new baseline
-python orchestrator/pipeline.py \
+python orchestrator/supervisor/regression_check.py list-baselines
+
+# Output example:
+# baseline_2026-06-01.json  2026-06-01 (keys=18)
+# baseline_2026-06-09.json  2026-06-09 (keys=19)
+# baseline.json (current)   2026-06-09 (symlink)
+```
+
+### Querying Results
+
+View regression findings via SQL:
+
+```bash
+sqlite3 logs/devlog.sqlite < eval/schema.sql
+
+# Then query the regression_findings VIEW:
+SELECT * FROM regression_findings WHERE drop_pct > 5 ORDER BY detected_at DESC;
     --intent "..." \
     --feature-id "..." \
     --regression-baseline eval/golden_regression/baseline-rtx4090.json
