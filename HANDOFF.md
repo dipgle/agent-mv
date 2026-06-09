@@ -158,7 +158,37 @@ Stub phần còn lại (real implementation cần dev fill):
 - `propose.py` LLM call route qua `planner` (local); cho proposal phức tạp nên route sang `planner-script-hard` (Claude Opus)
 - `audit.py` regression check cần baseline snapshot — chạy `regression_check.py snapshot` 1 lần khởi điểm
 
-## 11. Phase roadmap
+## 11. Windows compatibility checklist
+
+Codebase ship cross-OS. Verify trên Windows test box:
+
+| Item | How | Expected |
+|---|---|---|
+| Line endings | `git clone` → `.gitattributes` áp dụng | `*.sh` LF, `*.ps1` CRLF, `*.py` LF |
+| Env check | `.\run.ps1 check --verbose` | Tất cả `[ OK ]` trừ services có thể `[WARN]` chưa start |
+| Setup | `.\run.ps1 setup` | Installs Python/Git/ffmpeg/Ollama/ComfyUI/weights |
+| Smoke render | `.\run.ps1 pipeline --intent "test" --feature-id WIN-TEST --duration 5` | `out\WIN-TEST\final.mp4` tồn tại |
+| Audit cron | `.\run.ps1 cron-daily` | `eval\reports\audit_*.md` + `cost_*.md` |
+| External scan | `.\run.ps1 cron-weekly` | `eval\benchmarks\external_sources_*.json` |
+| Dashboard | `.\run.ps1 dashboard` | Browser mở `eval\dashboard.html` |
+| Task Scheduler | INSTALL-WIN.md step 9 | `Get-ScheduledTask AgentMV-*` shows 2 tasks |
+| Unicode console | Vietnamese chars trong report | Hiển thị đúng không `???` |
+| Compose shell fallback | Pipeline tự gọi `powershell` nếu thiếu `pwsh` | No `pwsh: command not found` error |
+
+Known Windows-specific quirks (đã handle trong code):
+- `lib/litellm_client.py` env var name uppercase auto-handled by Python's `os.environ`
+- `lib/cost_gate.py` SQLite path resolved via `Path("logs/devlog.sqlite")` (works both `/` and `\`)
+- `orchestrator/pipeline.py:_resolve_compose_cmd()` thử `pwsh` trước, fallback `powershell.exe`
+- `orchestrator/_console.py:ensure_utf8()` được gọi đầu mọi CLI entry — fixes mojibake
+- `run.ps1` set `chcp 65001` + `$env:PYTHONIOENCODING="utf-8"` global
+
+Còn TODO test trên Windows VM clean (chưa có physical Windows box):
+- Verify winget install order (Python phải trước venv create)
+- Verify `huggingface-cli` ở venv vs system PATH
+- Verify Task Scheduler chạy cron trong context đúng (CWD = project root)
+- Verify Defender không quarantine `python.exe` trong venv
+
+## 12. Phase roadmap
 
 | Phase | Status | Effort |
 |---|---|---|

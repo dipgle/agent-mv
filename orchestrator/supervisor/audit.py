@@ -245,4 +245,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import ensure_utf8
+    ensure_utf8()
     main()

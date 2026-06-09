@@ -1,0 +1,45 @@
+# Normalize line endings cross-OS.
+# Windows users cloning on NTFS will get the right endings per file type,
+# avoiding bash-on-Win failures from CRLF and PowerShell-on-Win failures from LF.
+
+# Default: text files auto-normalize on commit, system-native on checkout
+*               text=auto
+
+# Shell scripts MUST be LF (bash/zsh choke on CRLF)
+*.sh            text eol=lf
+*.bash          text eol=lf
+
+# PowerShell + batch MUST be CRLF on Windows for some legacy hosts
+*.ps1           text eol=crlf
+*.psm1          text eol=crlf
+*.psd1          text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Cross-platform sources stay LF (most editors handle both)
+*.py            text eol=lf
+*.md            text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.toml          text eol=lf
+*.sql           text eol=lf
+*.html          text eol=lf
+*.css           text eol=lf
+*.js            text eol=lf
+*.ts            text eol=lf
+
+# Binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.webp          binary
+*.mp4           binary
+*.mp3           binary
+*.wav           binary
+*.zip           binary
+*.7z            binary
+*.sqlite        binary
+*.ico           binary
+*.svg           text eol=lf

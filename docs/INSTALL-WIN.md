@@ -49,8 +49,11 @@ cd video
 PowerShell (chế độ user thường, KHÔNG cần admin):
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\infra\setup.ps1
+.\run.ps1 setup
 ```
+
+(Tương đương `.\infra\setup.ps1` — `run.ps1` là wrapper tiện lợi để chạy mọi
+lệnh pipeline mà không cần activate venv thủ công.)
 
 Script sẽ tự động:
 1. Cài Python 3.11, Git, ffmpeg, sqlite, Ollama qua winget
@@ -102,13 +105,21 @@ cd C:\dev\video
 litellm --config infra\litellm.yaml --port 4000
 ```
 
-## Bước 7 — Smoke test (render 5s clip)
+## Bước 7 — Verify environment
+
+Trước khi chạy pipeline, verify mọi thứ OK:
+```powershell
+.\run.ps1 check --verbose
+```
+
+Mong đợi: tất cả `[ OK ]`, riêng 3 endpoint Ollama/ComfyUI/LiteLLM có thể
+`[WARN]` nếu services chưa start (bước 6 chạy nó).
+
+## Bước 8 — Smoke test (render 5s clip)
 
 Window 4:
 ```powershell
-cd C:\dev\video
-.\venv\Scripts\Activate.ps1
-python orchestrator\pipeline.py `
+.\run.ps1 pipeline `
     --intent "Test clip 5s: blue sky time-lapse" `
     --feature-id SMOKE-001 `
     --aspect 16:9 `
@@ -117,6 +128,53 @@ python orchestrator\pipeline.py `
 ```
 
 Kết quả: `out\SMOKE-001\final.mp4`. Nếu mở play được = setup thành công.
+
+## Bước 9 — Lên lịch Supervisor cron (Windows Task Scheduler)
+
+Supervisor cần chạy daily + weekly tự động. Trên Windows không có cron,
+dùng Task Scheduler.
+
+### Daily task (audit + cost rollup + auto-promote)
+
+PowerShell admin:
+```powershell
+$action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\dev\video\orchestrator\cron\daily.ps1" `
+    -WorkingDirectory "C:\dev\video"
+$trigger = New-ScheduledTaskTrigger -Daily -At "02:00"
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "AgentMV-Daily" `
+    -Action $action -Trigger $trigger -Settings $settings `
+    -Description "Supervisor daily: audit + cost rollup + auto-promote"
+```
+
+### Weekly task (scan + propose)
+
+```powershell
+$action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\dev\video\orchestrator\cron\weekly.ps1" `
+    -WorkingDirectory "C:\dev\video"
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At "09:00"
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "AgentMV-Weekly" `
+    -Action $action -Trigger $trigger -Settings $settings `
+    -Description "Supervisor weekly: external scan + propose improvements"
+```
+
+Verify tasks đã đăng ký:
+```powershell
+Get-ScheduledTask -TaskName "AgentMV-*"
+```
+
+Chạy thử ngay:
+```powershell
+Start-ScheduledTask -TaskName "AgentMV-Daily"
+# Sau ~1 phút, check output:
+Get-Content logs\cron-daily.log -Tail 20
+Get-ChildItem eval\reports\
+```
 
 ## Troubleshooting
 
@@ -128,8 +186,17 @@ Kết quả: `out\SMOKE-001\final.mp4`. Nếu mở play được = setup thành 
 | `huggingface-cli: not found` | Activate venv ComfyUI trước khi chạy |
 | `ollama: connection refused` | Window 1 chưa chạy hoặc port 11434 đang dùng |
 | `ComfyUI: workflow not found` | Import workflow JSON từ `workflows/` qua UI ComfyUI |
-| Render rất chậm (>30 min/5s) | Đang dùng CPU mode, check GPU detect |
+| `is not digitally signed` | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` mỗi PowerShell window mới |
+| `Activate.ps1: cannot be loaded` | Như trên — execution policy |
+| `python: command not found` | Restart PowerShell sau khi `winget install Python` xong |
+| Tiếng Việt / emoji hiện `???` | `run.ps1` đã set `chcp 65001` + `PYTHONIOENCODING=utf-8`; nếu gọi script trực tiếp thì set `$env:PYTHONIOENCODING="utf-8"` trước |
+| Bash script không chạy (CRLF) | `.gitattributes` ép LF cho `*.sh`; nếu vẫn lỗi: `dos2unix orchestrator/cron/*.sh` |
+| `pwsh: command not found` (khi Python gọi compose) | Pipeline tự fallback sang `powershell.exe` 5.1; chỉ cảnh báo nhẹ |
+| `subprocess.CalledProcessError ffmpeg` | Verify `where ffmpeg` ra path; nếu không, restart shell sau winget install |
+| `OOM khi pip install opencv-python` | Tăng pagefile lên 16GB hoặc cài `opencv-python-headless` thay |
+| Render rất chậm (>30 min/5s) | Đang dùng CPU mode, check `.\run.ps1 check --verbose` |
 | Antivirus block `pyinstaller.exe` | Whitelist folder dự án trong Defender |
+| Task Scheduler không chạy | Settings → "Run whether user is logged on or not" + check user có quyền "Log on as batch job" |
 
 ## Cập nhật
 

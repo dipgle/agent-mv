@@ -203,14 +203,25 @@ def executor_caption(voice: Path, feature_id: str, out_dir: Path,
     )
 
 
+def _resolve_compose_cmd(feature_dir: Path) -> list[str]:
+    """Pick the right shell + script per OS. Robust to PowerShell variant."""
+    import shutil
+    arg = str(feature_dir)
+    if sys.platform != "win32":
+        return ["bash", "scripts/compose.sh", arg]
+    # Windows: prefer pwsh (PowerShell Core 7+); fall back to legacy powershell.exe
+    if shutil.which("pwsh"):
+        return ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "scripts/compose.ps1", arg]
+    return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", "scripts/compose.ps1", arg]
+
+
 def compose(feature_dir: Path, feature_id: str) -> Path:
     """ffmpeg compose via shell script (compose.sh / compose.ps1)."""
     import time
     t0 = time.time()
-    is_windows = sys.platform == "win32"
-    script = "scripts/compose.ps1" if is_windows else "scripts/compose.sh"
-    cmd = ["pwsh", "-File", script, str(feature_dir)] if is_windows \
-        else ["bash", script, str(feature_dir)]
+    cmd = _resolve_compose_cmd(feature_dir)
     subprocess.check_call(cmd)
     final = feature_dir / "final.mp4"
     devlog.log_model_run(
@@ -334,4 +345,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from _console import ensure_utf8
+    ensure_utf8()
     main()
