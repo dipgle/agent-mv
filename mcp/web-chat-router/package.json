@@ -1,0 +1,31 @@
+{
+  "name": "@agent-mv/web-chat-router",
+  "version": "1.0.0",
+  "description": "MCP server — free 3-way web chat vote for Adjudicator (Phase 1: Perplexity, LMArena, HuggingChat)",
+  "type": "module",
+  "bin": {
+    "web-chat-router": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^9.4.3",
+    "playwright": "^1.44.0"
+  },
+  "optionalDependencies": {
+    "@types/better-sqlite3": "^7.6.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

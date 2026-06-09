@@ -205,6 +205,53 @@ Các model dùng trong pipeline có license khác nhau:
 
 ⚠ Bán hoặc dùng commercial cho video sinh ra từ Flux/LTX/SAO **vi phạm license**. Nếu cần commercial, escalate sang model có license cho phép (Flux.1 Pro paid, hoặc tự train).
 
+## Web Chat Router (Tier W)
+
+The pipeline's **Adjudicator** role normally calls Claude Opus (paid) or the Codex pool
+(free trial, rotated). The **Web Chat Router** gives a third option: query frontier
+models through their *anonymous web UI* — zero API cost, zero ToS risk from pool abuse.
+
+### When to use Tier W vs the Codex pool
+
+| Signal | Use Tier W (`web_chat.*`) | Use Codex pool (`adjudicator`) |
+|--------|--------------------------|-------------------------------|
+| Need a quick 2nd/3rd opinion on a script or hook | Yes | No (overkill, burns quota) |
+| Need reproducible, high-quality brand judgment | No | Yes |
+| Codex pool exhausted (429) | Automatic cascade | — |
+| Budget headroom < $0.50 | Yes | Only if pool has quota |
+| Need citations / web search context | Yes (Perplexity) | No |
+
+### Phase 1 providers (no login, no API key)
+
+- **Perplexity** — web search + answer + citations. Good for "what are trending hooks for X?"
+- **LMArena** — anonymous side-by-side arena (two random frontier models). Non-deterministic
+  model pair; treat both responses as independent opinions.
+- **HuggingChat** — HuggingFace chat, anonymous mode. Active model varies by HF's rotation.
+
+### Quick start
+
+```bash
+# Install (Mac/Linux)
+bash mcp/web-chat-router/install.sh
+
+# Install (Windows)
+.\mcp\web-chat-router\install.ps1
+
+# Test manually
+npx tsx mcp/web-chat-router/src/server.ts
+```
+
+Then add the `web-chat-router` entry to your `.mcp.json` (see `.mcp.json.template`).
+
+Full docs: [mcp/web-chat-router/README.md](mcp/web-chat-router/README.md)
+
+### Privacy guard
+
+The router blocks prompts containing API keys, absolute paths, or client brand
+identifiers **before** any browser is launched. This guard cannot be disabled.
+Never paste client footage descriptions, brand assets, or proprietary scripts
+into Tier W adapters.
+
 ## Contributing
 
 Pipeline theo TDD (xem [CLAUDE.md](CLAUDE.md)): mỗi feature có UC + TC + RED test trước GREEN code. Decisions log vào `docs/decision-log.md`.

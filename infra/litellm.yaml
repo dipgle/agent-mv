@@ -131,3 +131,33 @@ general_settings:
 
 # NOTE: visual cloud gen (Runway/Pika) NOT in this config — separate billing
 # track. Use dedicated client when escalating, cap separately at $20/video.
+
+# ─── Tier W — Web Chat Router (FUTURE / Phase 2) ────────────────────────────
+# LiteLLM does not natively support MCP tools as model_name entries today.
+# The block below documents the INTENDED integration when LiteLLM adds MCP
+# tool routing support (tracked: https://github.com/BerriAI/litellm/issues/).
+#
+# In Phase 1, orchestrator code calls the web-chat-router MCP tools directly
+# (not via LiteLLM). The cost_gate.gate() function recognises "web_chat/*"
+# model names as Tier W (cost=0) and skips budget accounting.
+#
+# When LiteLLM MCP routing ships, uncomment and adapt:
+#
+#   - model_name: mcp_web_chat_perplexity
+#     litellm_params:
+#       model: mcp/web_chat.ask        # hypothetical MCP tool routing syntax
+#       mcp_server: web-chat-router    # registered MCP server name
+#       mcp_args:
+#         provider: perplexity
+#     # cost: 0 — Tier W, no API key, free anon web UI
+#
+#   - model_name: mcp_web_chat_compare
+#     litellm_params:
+#       model: mcp/web_chat.compare
+#       mcp_server: web-chat-router
+#       mcp_args:
+#         providers: ["perplexity", "lmarena", "huggingchat"]
+#
+# Until then: use the MCP server directly or via orchestrator/lib/web_chat_client.py
+# (to be added in Phase 2).
+# ─────────────────────────────────────────────────────────────────────────────

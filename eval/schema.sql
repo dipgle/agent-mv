@@ -363,3 +363,33 @@ SELECT
 FROM events
 WHERE kind = 'panel_partial'
 GROUP BY DATE(ts);
+
+
+-- ─── Web Chat Router (Tier W) ────────────────────────────────────────────────
+-- Events logged by mcp/web-chat-router (kind='web_chat_call').
+-- Use this view for quota monitoring and latency tracking of free-tier votes.
+-- Apply: sqlite3 logs/devlog.sqlite < eval/schema.sql
+CREATE VIEW IF NOT EXISTS web_chat_calls AS
+SELECT
+    id,
+    ts,
+    json_extract(content, '$.provider')             AS provider,
+    json_extract(content, '$.prompt_hash')           AS prompt_hash,
+    CAST(json_extract(content, '$.latency_ms')   AS INTEGER) AS latency_ms,
+    CAST(json_extract(content, '$.response_len') AS INTEGER) AS response_len,
+    json_extract(content, '$.model')                 AS model,
+    CAST(json_extract(content, '$.blocked') AS INTEGER)      AS blocked,
+    json_extract(content, '$.error')                 AS error
+FROM events
+WHERE kind = 'web_chat_call';
+
+-- Per-provider call counts in the current hour (quota monitoring).
+CREATE VIEW IF NOT EXISTS web_chat_quota_live AS
+SELECT
+    json_extract(content, '$.provider') AS provider,
+    COUNT(*) AS calls_this_hour
+FROM events
+WHERE kind = 'web_chat_call'
+  AND datetime(ts) >= datetime('now', '-1 hour')
+  AND CAST(json_extract(content, '$.blocked') AS INTEGER) = 0
+GROUP BY provider;

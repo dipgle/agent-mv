@@ -20,6 +20,23 @@
         "PROJECT_MEMORY_DIR": "<PROJECT_ABS_PATH>/memory",
         "PROJECT_LOG_DIR": "<PROJECT_ABS_PATH>/logs"
       }
+    },
+
+    "_comment_web_chat_router": [
+      "Uncomment the block below to enable the Tier W free web chat vote adapter.",
+      "Run install first: bash mcp/web-chat-router/install.sh",
+      "Tools exposed: web_chat.ask, web_chat.compare",
+      "See mcp/web-chat-router/README.md for full documentation."
+    ],
+    "_web-chat-router_DISABLED": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["<PROJECT_ABS_PATH>/mcp/web-chat-router/dist/server.js"],
+      "env": {
+        "PROJECT_LOG_DIR": "<PROJECT_ABS_PATH>/logs",
+        "WCR_HEADLESS": "1",
+        "WCR_QUOTA_PER_HOUR": "10"
+      }
     }
   }
 }
