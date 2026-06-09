@@ -182,6 +182,41 @@ def get_eval_recent() -> list[dict]:
     """)
 
 
+def get_outcomes_latest() -> list[dict]:
+    return _q("""
+        SELECT * FROM outcomes_latest
+        ORDER BY fetched_at DESC LIMIT 50
+    """)
+
+
+def get_outcomes_summary() -> list[dict]:
+    return _q("""
+        SELECT * FROM outcomes_summary
+        ORDER BY last_fetched DESC LIMIT 50
+    """)
+
+
+def get_champions() -> dict:
+    p = ROOT / "eval" / "champions" / "index.json"
+    if not p.exists():
+        return {"empty": True}
+    try:
+        return json.loads(p.read_text())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_calibration_latest() -> dict:
+    panel = _q("SELECT * FROM panel_calibrations ORDER BY ts DESC LIMIT 1")
+    hook = _q("SELECT * FROM hook_calibrations ORDER BY ts DESC LIMIT 1")
+    evolution = _q("SELECT * FROM champions_evolution ORDER BY ts DESC LIMIT 1")
+    return {
+        "panel": panel[0] if panel else None,
+        "hook":  hook[0] if hook else None,
+        "champions_evolution": evolution[0] if evolution else None,
+    }
+
+
 ROUTES = {
     "/eval/api/cost/mtd":               get_cost_mtd,
     "/eval/api/cost/top_spend":         get_cost_top_spend,
@@ -193,6 +228,10 @@ ROUTES = {
     "/eval/api/canaries/active":        get_canaries_active,
     "/eval/api/audit/latest":           get_audit_latest,
     "/eval/api/eval/recent":            get_eval_recent,
+    "/eval/api/outcomes/latest":        get_outcomes_latest,
+    "/eval/api/outcomes/summary":       get_outcomes_summary,
+    "/eval/api/champions":              get_champions,
+    "/eval/api/calibration/latest":     get_calibration_latest,
 }
 
 

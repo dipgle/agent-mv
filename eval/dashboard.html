@@ -52,7 +52,55 @@
   <button class="tab" data-panel="video">Video</button>
   <button class="tab" data-panel="audio">Audio</button>
   <button class="tab" data-panel="quality">⭐ Quality</button>
+  <button class="tab" data-panel="outcomes">📊 Outcomes</button>
+  <button class="tab" data-panel="champions">🏆 Champions</button>
+  <button class="tab" data-panel="calibration">🎯 Calibration</button>
   <button class="tab" data-panel="final">Final</button>
+</div>
+
+<!-- ─── OUTCOMES TAB (Tier 4 ground truth) ─────────────────────────── -->
+<div class="panel" id="outcomes">
+  <div class="card">
+    <h2>Latest outcomes per (feature, platform)</h2>
+    <table id="outcomes-latest">
+      <thead><tr><th>Feature</th><th>Platform</th><th>Impressions</th><th>Watch-through</th><th>Engagement</th><th>Fetched</th></tr></thead>
+      <tbody><tr><td colspan="6" class="empty">No outcome data — run supervisor/fetch_outcomes.py after publishing</td></tr></tbody>
+    </table>
+  </div>
+  <div style="height:16px"></div>
+  <div class="card">
+    <h2>Outcome rollup per feature</h2>
+    <table id="outcomes-summary">
+      <thead><tr><th>Feature</th><th>Platforms</th><th>Total impressions</th><th>Avg watch-through</th><th>Conversions</th></tr></thead>
+      <tbody><tr><td colspan="5" class="empty">No data</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ─── CHAMPIONS TAB ──────────────────────────────────────────────── -->
+<div class="panel" id="champions">
+  <div class="card">
+    <h2>Champion / anti-pattern library</h2>
+    <div id="champions-meta" style="font-size:12px;color:#888;margin-bottom:8px">Loading...</div>
+    <table id="champions-table">
+      <thead><tr><th>Tier</th><th>Feature</th><th>Category</th><th>Watch-through</th></tr></thead>
+      <tbody><tr><td colspan="4" class="empty">Run supervisor/evolve_champions.py after outcome data exists</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ─── CALIBRATION TAB ────────────────────────────────────────────── -->
+<div class="panel" id="calibration">
+  <div class="grid">
+    <div class="card">
+      <h2>Panel weight calibration (latest)</h2>
+      <div id="panel-cal" class="empty">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>Hook weight calibration (latest)</h2>
+      <div id="hook-cal" class="empty">Loading...</div>
+    </div>
+  </div>
 </div>
 
 <!-- ─── QUALITY TAB (Tier 1-3 eval) ─────────────────────────────────── -->
@@ -317,12 +365,83 @@ async function loadDims() {
   `).join('');
 }
 
+function renderOutcomesLatest(rows) {
+  const tb = document.querySelector('#outcomes-latest tbody');
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><code>${r.feature_id}</code></td>
+      <td>${r.platform}</td>
+      <td>${r.impressions || 0}</td>
+      <td>${r.watch_through_pct != null ? (r.watch_through_pct*100).toFixed(1)+'%' : '-'}</td>
+      <td>${r.engagement_rate != null ? (r.engagement_rate*100).toFixed(2)+'%' : '-'}</td>
+      <td>${(r.fetched_at||'').slice(0,16).replace('T',' ')}</td>
+    </tr>
+  `).join('');
+}
+
+function renderOutcomesSummary(rows) {
+  const tb = document.querySelector('#outcomes-summary tbody');
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><code>${r.feature_id}</code></td>
+      <td>${r.platforms_n}</td>
+      <td>${r.total_impressions || 0}</td>
+      <td>${r.avg_watch_through != null ? (r.avg_watch_through*100).toFixed(1)+'%' : '-'}</td>
+      <td>${r.total_conversions || 0}</td>
+    </tr>
+  `).join('');
+}
+
+function renderChampions(data) {
+  if (!data || data.empty) return;
+  const meta = document.getElementById('champions-meta');
+  meta.textContent = `Window ${data.window_days||'?'}d · ${data.champions_n} champions, `
+                    + `${data.anti_patterns_n} anti-patterns · evolved ${data.evolved_at||''}`;
+  const rows = [];
+  for (const c of (data.champions || [])) {
+    rows.push(`<tr><td class="pass">CHAMPION</td><td><code>${c.feature_id}</code></td>`
+              + `<td>${c.category||'?'}</td>`
+              + `<td>${(c.watch_through_pct*100).toFixed(1)}%</td></tr>`);
+  }
+  for (const c of (data.anti_patterns || [])) {
+    rows.push(`<tr><td class="fail">ANTI</td><td><code>${c.feature_id}</code></td>`
+              + `<td>${c.category||'?'}</td>`
+              + `<td>${(c.watch_through_pct*100).toFixed(1)}%</td></tr>`);
+  }
+  if (rows.length) document.querySelector('#champions-table tbody').innerHTML = rows.join('');
+}
+
+function renderCalibration(data) {
+  if (!data) return;
+  function fmt(c) {
+    if (!c) return '<div class="empty">never run</div>';
+    const weights = c.weights_json ? JSON.parse(c.weights_json) : {};
+    const lines = Object.entries(weights).sort((a,b)=>b[1]-a[1])
+                    .map(([k,v])=>`<code>${k}</code>: ${v.toFixed(3)}`)
+                    .join('<br>');
+    return `<div>decision: <b class="${c.decision==='applied'?'pass':'warn'}">`
+         + `${c.decision}</b></div>`
+         + `<div>r²: ${c.r2!=null?Number(c.r2).toFixed(3):'-'}</div>`
+         + `<div>sample n: ${c.sample_n}</div>`
+         + `<div>${c.reason}</div>`
+         + `<div style="margin-top:8px;font-size:11px">${lines}</div>`;
+  }
+  document.getElementById('panel-cal').innerHTML = fmt(data.panel);
+  document.getElementById('hook-cal').innerHTML = fmt(data.hook);
+}
+
 async function tick() {
   renderMTD(await getJSON('/eval/api/cost/mtd'));
   renderTopSpend(await getJSON('/eval/api/cost/top_spend'));
   renderSpendModel(await getJSON('/eval/api/cost/spend_per_model'));
   renderProposals(await getJSON('/eval/api/proposals/pending'));
   renderEvalRecent(await getJSON('/eval/api/eval/recent'));
+  renderOutcomesLatest(await getJSON('/eval/api/outcomes/latest'));
+  renderOutcomesSummary(await getJSON('/eval/api/outcomes/summary'));
+  renderChampions(await getJSON('/eval/api/champions'));
+  renderCalibration(await getJSON('/eval/api/calibration/latest'));
 }
 
 tick();

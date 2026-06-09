@@ -19,7 +19,10 @@ python orchestrator/supervisor/audit.py
 # 2. Cost roll-up
 python orchestrator/supervisor/cost_rollup.py
 
-# 3. Auto-promote any canaries that completed
+# 3. Fetch fresh outcomes for published videos (Tier 4 ground truth)
+python orchestrator/supervisor/fetch_outcomes.py
+
+# 4. Auto-promote any canaries that completed
 python orchestrator/supervisor/auto_promote.py
 
 echo "=== $(date) — daily cron done ==="

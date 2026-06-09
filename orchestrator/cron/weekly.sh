@@ -18,7 +18,16 @@ python orchestrator/supervisor/scan.py
 # 2. Generate improvement proposals from scan findings
 python orchestrator/supervisor/propose.py
 
-# 3. Re-run auto-promotion (in case canaries finished over the weekend)
+# 3. Calibrate Tier 2 panel weights from outcome data
+python orchestrator/supervisor/calibrate_panel.py
+
+# 4. Calibrate hook signal weights from outcome data
+python orchestrator/supervisor/calibrate_hook.py
+
+# 5. Evolve champion / anti-pattern library
+python orchestrator/supervisor/evolve_champions.py
+
+# 6. Re-run auto-promotion (in case canaries finished over the weekend)
 python orchestrator/supervisor/auto_promote.py
 
 echo "=== $(date) — weekly cron done ==="

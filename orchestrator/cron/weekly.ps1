@@ -11,5 +11,8 @@ if (Test-Path "venv\Scripts\Activate.ps1") {
 Write-Host "=== $(Get-Date) — weekly cron start ==="
 python orchestrator\supervisor\scan.py
 python orchestrator\supervisor\propose.py
+python orchestrator\supervisor\calibrate_panel.py
+python orchestrator\supervisor\calibrate_hook.py
+python orchestrator\supervisor\evolve_champions.py
 python orchestrator\supervisor\auto_promote.py
 Write-Host "=== $(Get-Date) — weekly cron done ==="

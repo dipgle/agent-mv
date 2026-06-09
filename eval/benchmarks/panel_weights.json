@@ -1,0 +1,8 @@
+{
+  "weights": {},
+  "r2": 0.0,
+  "sample_n": 0,
+  "decision": "fallback_equal",
+  "reason": "insufficient samples (need >=50, got 0)",
+  "calibrated_at": "2026-06-09T05:57:14.102810Z"
+}

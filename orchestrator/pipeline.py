@@ -319,19 +319,30 @@ def main():
         json.dumps(plan, indent=2, ensure_ascii=False)
     )
 
+    # Per-shot re-render: track which shots need work on each attempt.
+    # First attempt = all shots; subsequent attempts = only shots flagged
+    # critical/major by the previous Reviewer pass.
+    shots_to_render = list(plan["shotlist"])
+    audio_done = False  # voice/music/captions are video-wide, re-render only if compose-level reject
+
     for attempt in range(args.max_iter):
-        print(f"[3/4] Executor (attempt {attempt + 1}): rendering shots...")
-        for shot in plan["shotlist"]:
+        print(f"[3/4] Executor (attempt {attempt + 1}): "
+              f"rendering {len(shots_to_render)} shot(s)...")
+        for shot in shots_to_render:
             print(f"  shot {shot['idx']}: keyframe")
             kf = executor_keyframe(shot, args.feature_id, feature_dir, w, h)
             print(f"  shot {shot['idx']}: motion")
             executor_motion(shot, kf, args.feature_id, feature_dir, args.fps)
 
-        voice_script = "\n".join(s["voiceover"] for s in plan["shotlist"])
-        print("  voice / music / captions ...")
-        voice = executor_voice(voice_script, brand, args.feature_id, feature_dir)
-        executor_music(plan["music_brief"], args.duration, args.feature_id, feature_dir)
-        executor_caption(voice, args.feature_id, feature_dir)
+        if not audio_done:
+            voice_script = "\n".join(s["voiceover"] for s in plan["shotlist"])
+            print("  voice / music / captions ...")
+            voice = executor_voice(voice_script, brand, args.feature_id, feature_dir)
+            executor_music(plan["music_brief"], args.duration, args.feature_id, feature_dir)
+            executor_caption(voice, args.feature_id, feature_dir)
+            audio_done = True
+        else:
+            voice_script = "\n".join(s["voiceover"] for s in plan["shotlist"])
 
         print("[compose] ffmpeg...")
         final = compose(feature_dir, args.feature_id)
@@ -366,12 +377,54 @@ def main():
                                 rationale=f"panel sigma exceeded "
                                           f"on {critique.get('shot_issues',[])}")
             return
-        print(f"\n[X] REJECTED — re-render shots with critical issues")
+
+        # Decide what to re-render for the next attempt — only the shots
+        # that critically failed. Audio-level blockers force voice/music
+        # regen too.
+        shots_to_render, retry_audio = _flagged_shots(plan, critique)
+        if not shots_to_render and not retry_audio:
+            print(f"\n[X] REJECTED but no shot flagged for re-render — bail out")
+            break
+        if retry_audio:
+            audio_done = False
+            print(f"  Audio-level blocker flagged → re-render voice/music/captions")
+        if shots_to_render:
+            print(f"  Re-rendering shots: {[s['idx'] for s in shots_to_render]}")
 
     print(f"\n[!] Max retries reached. Adjudicator needed.")
     devlog.log_decision("orchestrator", args.feature_id,
                         decision="adjudicator_needed",
                         rationale=f"{args.max_iter} reviewer rejects")
+
+
+def _flagged_shots(plan: dict, critique: dict) -> tuple[list[dict], bool]:
+    """
+    Return (shots_to_re_render, retry_audio) from the Reviewer critique.
+
+    Only critical/major shot_issues qualify; minor issues are accumulated
+    but don't trigger a re-render (cost / noise floor).
+    Compose-level blockers (audio_lufs, compliance) force audio regen.
+    """
+    shot_idx_flagged: set[int] = set()
+    for issue in critique.get("shot_issues", []):
+        sev = issue.get("severity", "minor")
+        if sev in ("critical", "major"):
+            try:
+                shot_idx_flagged.add(int(issue.get("shot", -1)))
+            except (TypeError, ValueError):
+                pass
+
+    retry_audio = any(b in critique.get("blocker_dimensions", [])
+                      for b in ("audio_lufs", "compliance"))
+
+    if not shot_idx_flagged:
+        # Whole-video blocker that isn't shot-attributed → re-render everything
+        if critique.get("blocker_dimensions"):
+            return list(plan["shotlist"]), True
+        return [], False
+
+    shots = [s for s in plan["shotlist"] if s.get("idx") in shot_idx_flagged]
+    return shots, retry_audio
 
 
 if __name__ == "__main__":

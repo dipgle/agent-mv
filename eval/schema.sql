@@ -226,3 +226,67 @@ SELECT
          ELSE NULL END AS watch_per_dollar
 FROM cost_per_video c
 LEFT JOIN outcomes o ON c.feature_id = o.feature_id;
+
+
+-- ─── Tier 4 / Calibration loop views ────────────────────────────────────
+CREATE VIEW IF NOT EXISTS publish_records AS
+SELECT
+    ref_id AS feature_id, ts AS recorded_at,
+    json_extract(content,'$.platforms') AS platforms_json
+FROM events
+WHERE kind='publish_record';
+
+CREATE VIEW IF NOT EXISTS outcomes_latest AS
+SELECT
+    feature_id,
+    platform,
+    MAX(fetched_at) AS fetched_at,
+    impressions, watch_through_pct, avg_watch_s,
+    engagement_rate, ctr, conversion_n
+FROM outcomes
+GROUP BY feature_id, platform;
+
+CREATE VIEW IF NOT EXISTS outcomes_summary AS
+SELECT
+    feature_id,
+    COUNT(DISTINCT platform) AS platforms_n,
+    AVG(watch_through_pct) AS avg_watch_through,
+    SUM(impressions) AS total_impressions,
+    AVG(engagement_rate) AS avg_engagement,
+    SUM(conversion_n) AS total_conversions,
+    MAX(fetched_at) AS last_fetched
+FROM outcomes
+GROUP BY feature_id;
+
+CREATE VIEW IF NOT EXISTS panel_calibrations AS
+SELECT
+    ts, ref_id AS calibrated_for,
+    json_extract(content,'$.decision') AS decision,
+    CAST(json_extract(content,'$.r2') AS REAL) AS r2,
+    CAST(json_extract(content,'$.sample_n') AS INTEGER) AS sample_n,
+    json_extract(content,'$.weights') AS weights_json,
+    json_extract(content,'$.reason') AS reason
+FROM events
+WHERE kind='panel_calibration';
+
+CREATE VIEW IF NOT EXISTS hook_calibrations AS
+SELECT
+    ts, ref_id AS calibrated_for,
+    json_extract(content,'$.decision') AS decision,
+    CAST(json_extract(content,'$.r2') AS REAL) AS r2,
+    CAST(json_extract(content,'$.sample_n') AS INTEGER) AS sample_n,
+    json_extract(content,'$.weights') AS weights_json,
+    json_extract(content,'$.reason') AS reason
+FROM events
+WHERE kind='hook_calibration';
+
+CREATE VIEW IF NOT EXISTS champions_evolution AS
+SELECT
+    ts, ref_id AS evolved_at,
+    CAST(json_extract(content,'$.champions_n') AS INTEGER) AS champions_n,
+    CAST(json_extract(content,'$.anti_patterns_n') AS INTEGER) AS anti_patterns_n,
+    CAST(json_extract(content,'$.candidates_n') AS INTEGER) AS candidates_n,
+    json_extract(content,'$.window_days') AS window_days,
+    json_extract(content,'$.note') AS note
+FROM events
+WHERE kind='champion_evolve';
