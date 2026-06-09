@@ -126,6 +126,121 @@ curl http://localhost:4000/health
 
 ## Section 2: Pipeline Render Fails Midway
 
+### Checkpoint system — resuming from where you left off
+
+When the pipeline is interrupted mid-render (crash, OOM, network drop, Ctrl-C)
+it writes a `.checkpoint.json` file inside the feature output directory.  On the
+next invocation with the same `--feature-id`, the pipeline automatically loads
+this file and skips every step that already completed successfully.
+
+**Default behavior (--resume)**
+
+```bash
+# Re-run exactly as before — the pipeline picks up from the last successful step.
+python orchestrator/pipeline.py \
+    --intent "TikTok 30s SaaS analytics intro" \
+    --feature-id VID-001 \
+    --brand brand-example.json
+```
+
+The terminal will print a banner like:
+```
+[checkpoint] Resuming from step after: shot_06_motion  (attempt 1, 14 steps already done)
+```
+
+**Inspect the checkpoint without re-rendering**
+
+```bash
+python orchestrator/pipeline.py \
+    --intent "..." \
+    --feature-id VID-001 \
+    --show-checkpoint
+```
+
+Output:
+```
+Checkpoint: out/VID-001/.checkpoint.json
+  feature_id : VID-001
+  started_at : 2026-06-09T08:14:22
+  attempt_n  : 1
+  last_step  : shot_06_motion
+
+  Completed steps:
+    researcher  ->  out/VID-001/reference.json
+    planner  ->  out/VID-001/shotlist.json
+    shot_01_keyframe  ->  out/VID-001/shots/01_keyframe.png
+    ...
+    shot_06_motion  ->  out/VID-001/shots/06_clip.mp4
+```
+
+**Force a full re-render (ignore checkpoint)**
+
+```bash
+python orchestrator/pipeline.py \
+    --intent "..." \
+    --feature-id VID-001 \
+    --force-redo
+```
+
+**Restart from a specific step**
+
+Re-runs the named step and everything after it; steps before it are preserved.
+
+```bash
+# Re-run from shot_04_keyframe onward (shot 4, 5, 6... + audio + compose + review)
+python orchestrator/pipeline.py \
+    --intent "..." \
+    --feature-id VID-001 \
+    --from-step shot_04_keyframe
+```
+
+Valid step IDs:
+- `researcher`
+- `planner`
+- `shot_NN_keyframe` / `shot_NN_motion`  (NN = zero-padded index, e.g. `03`)
+- `voice`, `music`, `caption`
+- `compose`
+
+**Crash threshold**
+
+If a step crashes (ComfyUI 500, connection refused, OOM) the pipeline logs a
+`kind='step_crashed'` event and immediately stops so the checkpoint is not
+corrupted.  Use `--max-crashes` to set how many crashes are tolerated in a
+single invocation before aborting (default 3):
+
+```bash
+python orchestrator/pipeline.py \
+    --intent "..." \
+    --feature-id VID-001 \
+    --max-crashes 5
+```
+
+**High attempt-count warning**
+
+If a feature has been through more than 5 Reviewer-reject cycles, the pipeline
+prints a warning at startup and suggests manual inspection.  This is purely
+informational — the render continues unless you stop it.
+
+**Checkpoint and reviewer re-render loop**
+
+When the Reviewer rejects a video and flags specific shots for re-render, the
+pipeline *only* invalidates those shots in the checkpoint.  All other completed
+steps (especially audio, which is expensive) are preserved and skipped on the
+next iteration.
+
+**Devlog views for checkpoint events**
+
+```sql
+-- See which steps were skipped (checkpoint hits)
+SELECT * FROM step_skips WHERE feature_id = 'VID-001';
+
+-- See crash events with error class
+SELECT * FROM step_crashes WHERE feature_id = 'VID-001';
+
+-- See artifact-path repairs (file deleted between runs)
+SELECT * FROM checkpoint_repairs WHERE feature_id = 'VID-001';
+```
+
 ### "Stub workflow" error from comfy_client.py
 
 **Symptoms:**

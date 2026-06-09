@@ -454,3 +454,56 @@ SELECT
 FROM events
 WHERE kind = 'checkpoint_repair'
 ORDER BY ts DESC;
+
+
+-- ─── Compliance views (added 2026-06-09) ────────────────────────────────────
+
+-- Per-feature moderation results (kind='moderation' events logged by moderation.py).
+-- Each row is one check (nsfw / real_person / trademark / voice_consent).
+-- Use this for the Compliance tab in the dashboard.
+CREATE VIEW IF NOT EXISTS moderation_results AS
+SELECT
+    id,
+    ts,
+    ref_id                                              AS feature_id,
+    json_extract(content, '$.check')                   AS check_name,
+    -- flagged: 1 = issue found, 0 = clean
+    CAST(json_extract(content, '$.flagged') AS INTEGER) AS flagged,
+    -- severity: 'ok' | 'major' | 'critical'
+    json_extract(content, '$.severity')                AS severity,
+    -- categories: JSON array of flag labels
+    json_extract(content, '$.categories')              AS categories_json,
+    -- details: full check result dict
+    json_extract(content, '$.details')                 AS details_json
+FROM events
+WHERE kind = 'moderation'
+ORDER BY ts DESC;
+
+
+-- Per-feature C2PA embed status.
+-- Successful embeds are kind='c2pa_embedded'; failures / skips have their
+-- own kinds.  This view gives a quick pass/fail per feature.
+CREATE VIEW IF NOT EXISTS c2pa_status AS
+SELECT
+    ref_id                                              AS feature_id,
+    -- Most-recent embed result per feature
+    MAX(ts)                                             AS last_embed_ts,
+    -- 1 = at least one successful embed for this feature
+    MAX(CASE WHEN kind = 'c2pa_embedded' THEN 1 ELSE 0 END) AS embedded,
+    -- Whether the most recent embed was signed (1) or unsigned (0)
+    CAST(json_extract(
+        (SELECT content FROM events e2
+         WHERE e2.kind = 'c2pa_embedded'
+           AND e2.ref_id = events.ref_id
+         ORDER BY e2.ts DESC LIMIT 1),
+        '$.signed'
+    ) AS INTEGER)                                       AS signed,
+    -- 1 = at least one skip (library missing)
+    MAX(CASE WHEN kind = 'c2pa_skipped' THEN 1 ELSE 0 END) AS skipped,
+    -- 1 = at least one error
+    MAX(CASE WHEN kind = 'c2pa_error' THEN 1 ELSE 0 END)   AS error
+FROM events
+WHERE kind IN ('c2pa_embedded', 'c2pa_skipped', 'c2pa_error')
+  AND ref_id != ''
+GROUP BY ref_id
+ORDER BY last_embed_ts DESC;
