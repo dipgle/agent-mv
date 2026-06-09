@@ -290,3 +290,76 @@ SELECT
     json_extract(content,'$.note') AS note
 FROM events
 WHERE kind='champion_evolve';
+
+
+-- ─── Config mutations (auto-promote write-through log) ───────────────────────
+-- Covers both litellm.yaml swaps and workflow JSON replacements.
+-- Also surfaces rollback events so operators can trace the full mutation history.
+CREATE VIEW IF NOT EXISTS config_mutations AS
+SELECT
+    id,
+    ts,
+    ref_id AS proposal_id,
+    -- Distinguish promotion vs rollback vs snapshot events.
+    kind AS event_kind,
+    json_extract(content, '$.target')            AS target_file,
+    -- For litellm.yaml mutations: route-level diff fields.
+    json_extract(content, '$.diff.route_name')   AS route_name,
+    json_extract(content, '$.diff.old_model')    AS old_model,
+    json_extract(content, '$.diff.new_model')    AS new_model,
+    json_extract(content, '$.diff.new_api_base') AS new_api_base,
+    -- For workflow swaps.
+    json_extract(content, '$.diff.workflow')     AS workflow_name,
+    json_extract(content, '$.diff.backed_up_to') AS workflow_backup,
+    -- For rollbacks: which snapshot was restored.
+    json_extract(content, '$.snapshot_dir')      AS snapshot_dir,
+    -- Full diff JSON for cases not covered by the named columns above.
+    json_extract(content, '$.diff')              AS diff_json,
+    -- Optional: promote event tag stored by auto_promote.py.
+    json_extract(content, '$.event')             AS promote_event
+FROM events
+WHERE kind IN ('config_mutation', 'config_rollback', 'config_snapshot',
+               'manual_rollback', 'auto_promote_failed')
+ORDER BY ts DESC;
+
+
+-- ─── Panel reliability views (added 2026-06-09) ─────────────────────────────
+
+-- Timeout count per (model, calendar day).
+CREATE VIEW IF NOT EXISTS panel_timeouts AS
+SELECT
+    json_extract(content, '$.role') AS model,
+    DATE(ts)                         AS day,
+    COUNT(*)                         AS timeout_count
+FROM events
+WHERE kind = 'panel_timeout'
+GROUP BY json_extract(content, '$.role'), DATE(ts);
+
+-- Latest breaker state per model: open if the most recent breaker-skip event
+-- is newer than EVAL_CB_OPEN_DURATION_S (300 s default).  We surface a boolean
+-- approximation here; the authoritative state lives in eval/breakers.json.
+CREATE VIEW IF NOT EXISTS panel_breaker_state AS
+SELECT
+    json_extract(content, '$.model') AS model,
+    MAX(ts)                           AS last_skip_at,
+    -- Treat as open when the most recent skip event was within the last 5 min.
+    CASE
+        WHEN (strftime('%s', 'now') - strftime('%s', MAX(ts))) < 300
+        THEN 'open'
+        ELSE 'closed'
+    END AS breaker_state
+FROM events
+WHERE kind = 'panel_breaker_skip'
+GROUP BY json_extract(content, '$.model');
+
+-- Features that ran with a partial panel (2+ votes but not full complement).
+CREATE VIEW IF NOT EXISTS panel_partial_count AS
+SELECT
+    DATE(ts)  AS day,
+    COUNT(*)  AS partial_runs,
+    -- How many of those partial runs produced at least 1 vote.
+    SUM(CASE WHEN json_extract(content, '$.responded') > 0 THEN 1 ELSE 0 END)
+              AS runs_with_votes
+FROM events
+WHERE kind = 'panel_partial'
+GROUP BY DATE(ts);
