@@ -62,3 +62,14 @@ dist/
 build/
 *.exe
 *.msi
+
+# Supervisor runtime artifacts — regenerated daily/weekly by cron.
+# These rot fast (scan output, audit/cost reports). Tracking them spams
+# diffs and quickly drifts from current pipeline state.
+eval/reports/audit_*.md
+eval/reports/cost_*.md
+eval/reports/scan_*.md
+eval/reports/improvement_queue.md
+eval/benchmarks/external_sources_*.json
+eval/benchmarks/*_cached.json
+eval/canary/PROP-*.json
