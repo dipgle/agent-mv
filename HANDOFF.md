@@ -37,15 +37,17 @@ Multi-agent local-first video pipeline (4 roles, 6 modality, ComfyUI + Ollama + 
 3. Copy `.env.example` → `.env`, điền keys nếu cần cloud
 
 ### Phase 1 — Workflows thật (2-4 giờ)
-Hiện 5 file `workflows/*.json.stub` chỉ là placeholder. Phải làm:
+Hiện có `workflows/*.json.stub` chỉ là placeholder. Phải làm:
 
 | Stub | Action |
 |---|---|
-| `flux_keyframe.json.stub` | Mở ComfyUI Manager → Templates → Flux example → Save (API Format) → `workflows/flux_keyframe.json` |
-| `ltx_motion.json.stub` | Cài `ComfyUI-LTXVideo` qua Manager → load example workflow → save |
+| `flux_schnell_keyframe.json.stub` | Cài `ComfyUI-FluxDev` qua Manager → load FLUX.1-schnell checkpoint → KSampler: steps=4, cfg=0.0, scheduler=simple → Save (API Format) → `workflows/flux_schnell_keyframe.json` |
+| `wan21_motion.json.stub` | Cài `ComfyUI-WanVideo` qua Manager → load Wan2.1-T2V-14B workflow → save as `workflows/wan21_motion.json` |
 | `f5_tts.json.stub` | Cài `ComfyUI-F5-TTS` → load example → save |
-| `stable_audio_music.json.stub` | Cài `ComfyUI-StableAudio` → load example → save |
 | `whisper_caption.json.stub` | Cài `ComfyUI-Whisper` → load example → save |
+| `stock_music_search.json.stub` | Không phải ComfyUI workflow — đọc instructions bên trong, set `PIXABAY_API_KEY` trong `.env` |
+
+Note: `stable_audio_music.json.stub` đã bị xóa (CC-BY-NC license). Music giờ qua Pixabay API — xem `orchestrator/lib/stock_music.py`.
 
 Sau đó update mapping node ID trong `orchestrator/pipeline.py` (search "NODE IDs depend on"):
 ```python

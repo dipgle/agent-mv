@@ -28,9 +28,10 @@ open out/VID-001/final.mp4                                 # 5. xem
 
 ## Yêu cầu hệ thống
 
-- **GPU**: NVIDIA 12GB+ VRAM (RTX 3060/4070/4090) HOẶC Apple M-series 32GB+ unified
+- **GPU**: NVIDIA 24GB+ VRAM (RTX 3090/4090) HOẶC Apple M-series 64GB+ unified
+  (Wan2.1-T2V-14B needs 24-40 GB VRAM depending on resolution; proxy 720p needs ~24 GB)
 - **RAM**: 32GB minimum, 64GB recommended
-- **Storage**: 200GB SSD free (model weights ~60GB + render output)
+- **Storage**: 200GB SSD free (model weights ~45GB + render output)
 - **OS**: Windows 10/11, macOS 14+, Ubuntu 22.04+
 
 Chi tiết: [docs/INSTALL-*.md](docs/)
@@ -143,18 +144,21 @@ ELECTRICITY_USD_KWH=0.12
 
 ## Stack
 
-| Layer | Tool | Vai trò |
-|---|---|---|
-| Text LLM | Ollama (`qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:32b`, `qwen2.5-vl:7b`) | Planner, Reviewer, Researcher |
-| Image gen | ComfyUI + Flux.1-dev | Keyframe per shot |
-| Video gen | ComfyUI + LTX-Video / Wan2.1 | Image-to-video motion |
-| Voice TTS | ComfyUI + F5-TTS | Voiceover (zero-shot clone) |
-| Music gen | ComfyUI + Stable Audio Open | BGM |
-| STT | ComfyUI + Whisper large-v3 | Auto captions |
-| Router | LiteLLM proxy | Local → free cloud → paid cascade |
-| Orchestrator | CrewAI + LangGraph | 4-role pipeline |
-| Compose | ffmpeg + DaVinci Resolve | Final assembly |
-| Eval | SQLite + vanilla JS dashboard | Continuous improvement |
+All default models are commercial-OK (Apache 2.0 / MIT / royalty-free).
+See `docs/conventions.md` "License hygiene" for the full policy.
+
+| Layer | Tool | License | Vai trò |
+|---|---|---|---|
+| Text LLM | Ollama (`qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:32b`, `qwen2.5-vl:7b`) | Apache 2.0 / MIT | Planner, Reviewer, Researcher |
+| Image gen | ComfyUI + **FLUX.1-schnell** | Apache 2.0 | Keyframe per shot (4-step, ~7× faster than dev) |
+| Video gen | ComfyUI + **Wan2.1-T2V-14B** | Apache 2.0 | Image-to-video motion |
+| Voice TTS | ComfyUI + F5-TTS | Apache 2.0 | Voiceover (zero-shot clone) |
+| Music | **Pixabay Music API** + CC0 fallback | Royalty-free / CC0 | BGM (replaces Stable Audio Open) |
+| STT | ComfyUI + Whisper large-v3 | MIT | Auto captions |
+| Router | LiteLLM proxy | Apache 2.0 | Local → free cloud → paid cascade |
+| Orchestrator | CrewAI + LangGraph | MIT | 4-role pipeline |
+| Compose | ffmpeg + DaVinci Resolve | LGPL / free | Final assembly |
+| Eval | SQLite + vanilla JS dashboard | MIT | Continuous improvement |
 
 ## Workflow
 
@@ -192,18 +196,21 @@ Cụ thể: xem [HANDOFF.md](HANDOFF.md).
 
 ## License notice
 
-Các model dùng trong pipeline có license khác nhau:
+As of 2026-06-09, all default models in this pipeline are commercial-OK:
 
-| Model | License | Use |
+| Model | License | Commercial use |
 |---|---|---|
-| FLUX.1-dev | **Non-commercial** | Personal / research only |
-| LTX-Video | **Research only** | Personal / research only |
-| F5-TTS | Apache 2.0 | Free commercial |
-| Stable Audio Open | CC-BY-NC | Non-commercial |
-| Whisper | MIT | Free commercial |
-| Ollama models (Qwen/DeepSeek-R1) | Apache 2.0 / MIT | Free commercial |
+| FLUX.1-schnell | Apache 2.0 | Yes |
+| Wan2.1-T2V-14B | Apache 2.0 | Yes |
+| F5-TTS | Apache 2.0 | Yes |
+| Whisper large-v3 | MIT | Yes |
+| Pixabay Music API | Pixabay License (royalty-free) | Yes |
+| Qwen3 / DeepSeek-R1 | Apache 2.0 / MIT | Yes |
 
-⚠ Bán hoặc dùng commercial cho video sinh ra từ Flux/LTX/SAO **vi phạm license**. Nếu cần commercial, escalate sang model có license cho phép (Flux.1 Pro paid, hoặc tự train).
+Personal/research-only models (FLUX.1-dev, LTX-Video, Stable Audio Open) are
+available via `COMMERCIAL_MODE=0` env var but must NOT be used for client work.
+See `docs/conventions.md` "License hygiene" for the full policy and process
+for adding new models.
 
 ## Web Chat Router (Tier W)
 

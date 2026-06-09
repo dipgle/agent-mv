@@ -135,3 +135,61 @@ video-projects/<feature_id>/
 - **ffmpeg**: scripts ở `scripts/compose.sh` — không inline ffmpeg trong Python.
 - **DaVinci**: chỉ manual polish bước cuối, KHÔNG dependency tự động.
 - **Code comments in English** (memory: `feedback_code_comments_english`)
+
+## License hygiene
+
+Commercial production requires every model in the pipeline to have a license
+that permits commercial use without attribution or revenue restrictions.
+
+### Allowed licenses
+
+| License | Notes |
+|---|---|
+| Apache 2.0 | Fully commercial OK; include NOTICE file if distributing model |
+| MIT | Fully commercial OK |
+| BSD 2-Clause / BSD 3-Clause | Fully commercial OK |
+| CC0 (Public Domain) | No restrictions |
+| CC-BY 4.0 | Commercial OK with attribution in credits |
+| Pixabay License | Royalty-free, commercial OK, no attribution required |
+
+### Blocked licenses (must NOT appear in production pipeline)
+
+| License | Blocked model examples | Reason |
+|---|---|---|
+| CC-BY-NC (any variant) | Stable Audio Open, MusicGen-Large | Non-commercial only |
+| BFL Non-Commercial | FLUX.1-dev | Black Forest Labs non-commercial |
+| RAIL-Research / Research-only | LTX-Video (Lightricks) | Research use only |
+| CreativeML OpenRAIL-M | SDXL base (some variants) | Requires output disclosure |
+
+### Current production stack (all commercial-OK)
+
+| Layer | Model | License |
+|---|---|---|
+| Image keyframe | FLUX.1-schnell | Apache 2.0 |
+| Image-to-video | Wan2.1-T2V-14B | Apache 2.0 |
+| Voice TTS | F5-TTS | Apache 2.0 |
+| Music | Pixabay API + CC0 fallback | Pixabay License / CC0 |
+| Captions | Whisper large-v3 | MIT |
+| Text LLMs | Qwen3, DeepSeek-R1 | Apache 2.0 / MIT |
+
+### COMMERCIAL_MODE env var
+
+```
+COMMERCIAL_MODE=1  # default — enforces Apache/MIT/CC0 cascade only
+COMMERCIAL_MODE=0  # opt-in for personal/research — enables FLUX.1-dev + LTX-Video
+```
+
+`COMMERCIAL_MODE=0` **MUST NEVER** be used for client deliverables or any video
+intended for commercial distribution.
+
+### Process for adding a new model
+
+1. Identify the exact license from the model's HuggingFace model card.
+2. Check against the Allowed / Blocked table above.
+3. In the PR description, include: model name, HuggingFace URL, license name,
+   confirmation "Commercial use: YES / NO".
+4. If commercial use is YES: add model to `infra/models.md` with License column.
+5. If commercial use is NO: model can only be added under `COMMERCIAL_MODE=0`
+   path in `cost_gate.py`, documented as personal/research only.
+6. Never add a blocked-license model to `infra/setup.sh` / `infra/setup.ps1`
+   as a default download.

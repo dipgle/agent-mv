@@ -70,12 +70,26 @@ if (-not (Test-Path $ComfyDir)) {
 }
 
 # ─── 4. Visual / audio weights (HuggingFace) ─────────────────────────────
+# All weights below are commercial-OK (Apache 2.0 / MIT).
+# Disk requirement: ~45 GB total (flux-schnell ~12 GB + wan2.1 ~28 GB + f5 ~1 GB + whisper ~3 GB).
 $HFModels = @(
-    @{repo="black-forest-labs/FLUX.1-dev"; dst="models\checkpoints\flux"},
-    @{repo="Lightricks/LTX-Video"; dst="models\checkpoints\ltx"},
+    # Image keyframe gen — FLUX.1-schnell (Apache 2.0, 4-step distilled, ~12 GB)
+    # Replaces FLUX.1-dev (non-commercial). See docs/migration-flux-dev-to-schnell.md.
+    @{repo="black-forest-labs/FLUX.1-schnell"; dst="models\checkpoints\flux_schnell"},
+
+    # Image-to-video motion — Wan2.1-T2V-14B (Apache 2.0, ~28 GB)
+    # Replaces LTX-Video (research-only license).
+    @{repo="Wan-AI/Wan2.1-T2V-14B"; dst="models\checkpoints\wan"},
+
+    # Voice TTS — F5-TTS (Apache 2.0, ~1 GB)
     @{repo="SWivid/F5-TTS"; dst="models\tts\f5"},
-    @{repo="stabilityai/stable-audio-open-1.0"; dst="models\audio\sao"},
+
+    # Captions STT — Whisper large-v3 (MIT, ~3 GB)
     @{repo="openai/whisper-large-v3"; dst="models\stt\whisper"}
+
+    # Stable Audio Open REMOVED — CC-BY-NC license not compatible with commercial use.
+    # Music is now sourced via Pixabay API (royalty-free) or CC0 fallback library.
+    # See orchestrator/lib/stock_music.py and docs/conventions.md "License hygiene".
 )
 
 # huggingface-cli ships in venv; ensure it's available

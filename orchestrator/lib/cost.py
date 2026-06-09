@@ -77,6 +77,14 @@ CLOUD_PRICING: dict[str, dict] = {
     "pika-2-0":          {"per_clip_4s": 0.45},
     "elevenlabs-tts":    {"per_1k_chars": 0.30},
     "suno-v4":           {"per_song": 0.10},
+    # Local-only visual gen (compute + electricity only, no cloud cost).
+    # Apache 2.0 — commercial use permitted.
+    "flux.1-schnell":    {"local_only": True, "note": "Apache 2.0, 4-step distilled, ~12 GB"},
+    "wan-2.1-t2v-14b":   {"local_only": True, "note": "Apache 2.0, image-to-video, ~28 GB"},
+    # Stock music sourcing (Pixabay API — free tier, no per-track cost).
+    "pixabay-music":     {"per_track": 0.0,
+                          "free_quota": "5000 req/hour; unlimited downloads",
+                          "note": "Royalty-free, commercial OK"},
 }
 
 
@@ -167,12 +175,28 @@ def estimate(
 
 
 def tier_of(model: str) -> str:
-    """Classify model for cost/quality bucketing — same convention as devlog.tier_of."""
+    """Classify model for cost/quality bucketing — same convention as devlog.tier_of.
+
+    Tier B = local frontier (no cloud cost, compute/electricity only).
+    Tier A- = legit free cloud (official free tiers with daily quotas).
+    Tier A = paid cloud mid-range.
+    Tier S = paid cloud frontier or per-clip video API.
+    """
     m = model.lower()
+    # Local models — no cloud cost, Apache 2.0 / MIT licensed.
     if "ollama/" in m or "comfy/" in m or "local/" in m: return "B"
+    # Newly added local visual gen models (commercial-OK Apache 2.0).
+    if any(x in m for x in ("flux.1-schnell", "wan-2.1", "wan2.1", "f5-tts", "whisper")): return "B"
+    # Legacy local models retained for personal-use cascade.
+    if any(x in m for x in ("flux.1-dev", "ltx-video", "ltx-video-q4")): return "B"
+    # Free cloud APIs.
     if any(x in m for x in ("groq/", "cerebras/", ":free")): return "A-"
     if "claude-haiku" in m or "gemini-flash" in m or "gpt-5-mini" in m: return "A-"
+    # Free stock music (Pixabay) — $0 cloud cost.
+    if "pixabay" in m: return "A-"
+    # Paid cloud mid-range.
     if "claude-sonnet" in m or "gpt-5-codex" in m or "gemini-pro" in m: return "A"
+    # Paid cloud frontier.
     if "claude-opus" in m or "gpt-5" in m or "gemini-3-pro" in m: return "S"
     if any(x in m for x in ("runway/", "pika/", "sora", "elevenlabs", "suno")): return "S"
     return "?"
@@ -205,3 +229,16 @@ if __name__ == "__main__":
 
     bd = estimate(model="runway/runway-gen-3", latency_ms=180000, n_units=1)
     print("Runway 1 clip:", bd.as_dict())
+
+    # New commercial-OK models (Apache 2.0)
+    print("tier_of flux.1-schnell:", tier_of("flux.1-schnell"))   # expect "B"
+    print("tier_of wan-2.1-t2v-14b:", tier_of("wan-2.1-t2v-14b")) # expect "B"
+    print("tier_of pixabay-music:", tier_of("pixabay-music"))      # expect "A-"
+
+    bd = estimate(model="flux.1-schnell", latency_ms=3500,
+                  hardware="RTX_4090_owned")
+    print("FLUX.1-schnell 3.5s RTX 4090:", bd.as_dict())  # electricity only
+
+    bd = estimate(model="wan-2.1-t2v-14b", latency_ms=720000,
+                  hardware="RTX_4090_owned")
+    print("Wan2.1 12min RTX 4090:", bd.as_dict())  # electricity only

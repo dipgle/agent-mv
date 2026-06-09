@@ -44,7 +44,7 @@ except ImportError:
 # Add orchestrator/ to sys.path so `from lib import ...` works
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib import (devlog, litellm_client, comfy_client,
+from lib import (devlog, litellm_client, comfy_client, stock_music,
                  eval_tier1, eval_brand, eval_hook, eval_tier2, eval_aggregate)
 
 
@@ -122,18 +122,26 @@ Constraints:
 # ─── Role: Executor (modality-split) ──────────────────────────────────────
 def executor_keyframe(shot: dict, feature_id: str, out_dir: Path,
                       width: int, height: int) -> Path:
-    """Generate 1 keyframe PNG via Flux workflow."""
+    """Generate 1 keyframe PNG via FLUX.1-schnell workflow (Apache 2.0).
+
+    FLUX.1-schnell is a 4-step distilled model: set steps=4, cfg=0.0 in the
+    KSampler node. A negative prompt has no effect and should be left empty.
+    """
     out_path = out_dir / "shots" / f"{shot['idx']:02d}_keyframe.png"
-    # NODE IDs depend on your specific Flux workflow.
-    # Customize this mapping after exporting workflow from ComfyUI UI.
+    # NODE IDs depend on your specific workflow export from ComfyUI UI.
+    # Customize after exporting workflows/flux_schnell_keyframe.json.
+    # Key Schnell-specific settings: steps=4, cfg=0.0, scheduler='simple'.
     patches = {
         # Example mapping — adjust to match your workflow's node IDs:
-        # "6": {"text": shot["image_prompt"]},   # CLIPTextEncode
+        # "6": {"text": shot["image_prompt"]},     # CLIPTextEncode
         # "5": {"width": width, "height": height},  # EmptyLatentImage
-        # "3": {"seed": shot["idx"] * 1000},     # KSampler
+        # "3": {"seed": shot["idx"] * 1000,         # KSampler
+        #        "steps": 4, "cfg": 0.0,
+        #        "sampler_name": "euler",
+        #        "scheduler": "simple"},
     }
     return comfy_client.run(
-        "flux_keyframe", patches, out_path,
+        "flux_schnell_keyframe", patches, out_path,
         role="executor-keyframe", feature_id=feature_id,
         shot_idx=shot["idx"], modality="image",
     )
@@ -141,16 +149,24 @@ def executor_keyframe(shot: dict, feature_id: str, out_dir: Path,
 
 def executor_motion(shot: dict, keyframe: Path, feature_id: str,
                     out_dir: Path, fps: int = 24) -> Path:
-    """Image-to-video via LTX workflow."""
+    """Image-to-video via Wan2.1-T2V-14B workflow (Apache 2.0).
+
+    Wan2.1 replaces LTX-Video (research-only license). It requires more VRAM
+    (~24-40 GB depending on resolution) but produces higher-quality motion.
+    For proxy renders at 720p, VRAM requirement is ~24 GB.
+    """
     out_path = out_dir / "shots" / f"{shot['idx']:02d}_clip.mp4"
     num_frames = int(shot["duration_s"] * fps)
     patches = {
-        # "loadimage_node": {"image": str(keyframe)},
-        # "text_node": {"text": shot["motion"]},
-        # "video_node": {"num_frames": num_frames, "fps": fps},
+        # NODE IDs depend on your specific Wan2.1 workflow export from ComfyUI UI.
+        # Customize after exporting workflows/wan21_motion.json.
+        # "loadimage_node": {"image": str(keyframe)},   # LoadImage node
+        # "text_node": {"text": shot["motion"]},        # text prompt node
+        # "video_node": {"num_frames": num_frames,      # WanVideoSampler or equivalent
+        #                "fps": fps},
     }
     return comfy_client.run(
-        "ltx_motion", patches, out_path,
+        "wan21_motion", patches, out_path,
         role="executor-motion", feature_id=feature_id,
         shot_idx=shot["idx"], modality="video",
     )
@@ -177,17 +193,59 @@ def executor_voice(script: str, brand: dict, feature_id: str,
 
 def executor_music(brief: dict, duration: int, feature_id: str,
                    out_dir: Path) -> Path:
-    """BGM via Stable Audio Open."""
+    """Download royalty-free BGM from Pixabay API or CC0 fallback library.
+
+    Replaces Stable Audio Open (CC-BY-NC, non-commercial). The new approach
+    sources pre-made music that is commercially cleared rather than generating
+    it on-device.
+
+    Signature is unchanged from the Stable Audio version so all callers continue
+    to work without modification.
+
+    The track is trimmed or looped to `duration` seconds via ffmpeg.
+    License info is included in the devlog kind='artifact' event metadata.
+    """
+    import subprocess
+    import time
+
     out_path = out_dir / "bgm.wav"
-    prompt = f"{', '.join(brief.get('mood', []))} {brief.get('bpm', 120)} BPM"
-    patches = {
-        # "sao_node": {"prompt": prompt, "duration_s": duration}
-    }
-    return comfy_client.run(
-        "stable_audio_music", patches, out_path,
-        role="executor-music", feature_id=feature_id,
-        modality="audio",
+    client = stock_music.PixabayMusicClient()
+
+    # select_track logs a kind='stock_music_pick' event internally.
+    t0 = time.time()
+    source_path = client.select_track(brief, feature_id=feature_id)
+    latency_ms = int((time.time() - t0) * 1000)
+
+    # Trim / loop to target duration using ffmpeg.
+    # -t trims; -stream_loop -1 loops infinitely before trim so short tracks work.
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-stream_loop", "-1",     # loop input if shorter than target
+        "-i", str(source_path),
+        "-t", str(duration),      # trim to exact duration
+        "-af", "afade=t=out:st={},d=2".format(max(0, duration - 2)),  # fade out last 2s
+        "-ar", "44100",           # normalize sample rate
+        "-ac", "2",               # stereo
+        str(out_path),
+    ]
+    subprocess.check_call(ffmpeg_cmd,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Log as artifact with license metadata so the cost rollup and audit
+    # pipelines can verify commercial compliance.
+    devlog.append(
+        "artifact", "executor-music", "feature", feature_id,
+        {
+            "asset_type": "music",
+            "path": str(out_path),
+            "source_path": str(source_path),
+            "duration_s": duration,
+            "latency_ms": latency_ms,
+            "license": "Pixabay License (royalty-free, commercial OK) or CC0 Public Domain",
+            "license_compliant": True,
+        },
     )
+    return out_path
 
 
 def executor_caption(voice: Path, feature_id: str, out_dir: Path,

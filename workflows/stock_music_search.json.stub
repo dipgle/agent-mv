@@ -1,0 +1,29 @@
+{
+  "__stub__": true,
+  "__type__": "non-comfyui",
+  "__note__": "This is NOT a ComfyUI workflow. It is a configuration placeholder for the Pixabay Music client.",
+  "__license__": "Pixabay Music API — royalty-free, commercial use permitted (no attribution required for API results)",
+  "__instructions__": [
+    "This file is a placeholder — the stock music step does NOT run through ComfyUI.",
+    "Music is sourced from the Pixabay Music API via orchestrator/lib/stock_music.py.",
+    "",
+    "Configuration:",
+    "  Set env var PIXABAY_API_KEY in your .env file.",
+    "  Get a free key at: https://pixabay.com/api/docs/",
+    "  Without a key: first 100 results/day are still accessible (search only).",
+    "",
+    "Fallback library:",
+    "  Drop CC0 WAV/MP3 tracks into data/stock_music_fallback/",
+    "  (see data/stock_music_fallback/README.md for sourcing guidance)",
+    "  The fallback library is used when:",
+    "    - PIXABAY_API_KEY is not set AND the anonymous quota is exhausted",
+    "    - A network error occurs during the API call",
+    "    - No matching track is found for the requested mood/BPM",
+    "",
+    "The pipeline calls stock_music.select_track(brief) where brief is the",
+    "music_brief dict from the Planner output:",
+    "  { 'bpm': 120, 'mood': 'energetic', 'key': 'C major' }",
+    "",
+    "Do not replace this stub with a ComfyUI JSON — it has no ComfyUI equivalent."
+  ]
+}

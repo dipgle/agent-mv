@@ -32,14 +32,27 @@ if [ ! -d "$COMFY_DIR" ]; then
 fi
 
 # ─── 3. Visual / audio model weights ─────────────────────────────────────
+# All weights below are commercial-OK (Apache 2.0 / MIT).
+# Disk requirement: ~45 GB total (flux-schnell ~12 GB + wan2.1 ~28 GB + f5 ~1 GB + whisper ~3 GB).
 # Pull big models manually — comment out what you don't need.
 HF_MODELS=(
-  "black-forest-labs/FLUX.1-dev:models/checkpoints/flux"
-  "Lightricks/LTX-Video:models/checkpoints/ltx"
+  # Image keyframe gen — FLUX.1-schnell (Apache 2.0, 4-step distilled, ~12 GB)
+  # Replaces FLUX.1-dev (non-commercial). See docs/migration-flux-dev-to-schnell.md.
+  "black-forest-labs/FLUX.1-schnell:models/checkpoints/flux_schnell"
+
+  # Image-to-video motion — Wan2.1-T2V-14B (Apache 2.0, ~28 GB)
+  # Replaces LTX-Video (research-only license).
+  "Wan-AI/Wan2.1-T2V-14B:models/checkpoints/wan"
+
+  # Voice TTS — F5-TTS (Apache 2.0, ~1 GB)
   "SWivid/F5-TTS:models/tts/f5"
-  "stabilityai/stable-audio-open-1.0:models/audio/sao"
+
+  # Captions STT — Whisper large-v3 (MIT, ~3 GB)
   "openai/whisper-large-v3:models/stt/whisper"
-  # "Wan-AI/Wan2.1-T2V-14B:models/checkpoints/wan"   # uncomment for high-q
+
+  # Stable Audio Open REMOVED — CC-BY-NC license not compatible with commercial use.
+  # Music is now sourced via Pixabay API (royalty-free) or CC0 fallback library.
+  # See orchestrator/lib/stock_music.py and docs/conventions.md "License hygiene".
 )
 for entry in "${HF_MODELS[@]}"; do
   repo="${entry%%:*}"
