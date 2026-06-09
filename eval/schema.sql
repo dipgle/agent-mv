@@ -88,3 +88,141 @@ SELECT
     json_extract(content, '$.reason') AS reason
 FROM events
 WHERE kind = 'swap_candidate';
+
+
+-- ─── Cost views (granular: cloud / compute / electricity per call) ───────
+CREATE VIEW IF NOT EXISTS cost_per_video AS
+SELECT
+    ref_id AS feature_id,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) AS total_usd,
+    SUM(CAST(json_extract(content,'$.cost.cloud_usd') AS REAL)) AS cloud_usd,
+    SUM(CAST(json_extract(content,'$.cost.compute_usd') AS REAL)) AS compute_usd,
+    SUM(CAST(json_extract(content,'$.cost.electricity_usd') AS REAL)) AS electricity_usd,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) FILTER
+        (WHERE json_extract(content,'$.modality')='image') AS image_usd,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) FILTER
+        (WHERE json_extract(content,'$.modality')='video') AS video_usd,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) FILTER
+        (WHERE json_extract(content,'$.modality')='audio') AS audio_usd,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) FILTER
+        (WHERE json_extract(content,'$.modality')='text') AS text_usd,
+    COUNT(*) AS n_calls
+FROM events
+WHERE kind='model_run' AND ref_id != ''
+GROUP BY ref_id;
+
+CREATE VIEW IF NOT EXISTS cost_per_modality_daily AS
+SELECT
+    DATE(ts) AS day,
+    json_extract(content,'$.modality') AS modality,
+    json_extract(content,'$.model') AS model,
+    COUNT(*) AS n,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) AS total_usd
+FROM events
+WHERE kind='model_run'
+GROUP BY day, modality, model;
+
+CREATE VIEW IF NOT EXISTS cost_trend_weekly AS
+SELECT
+    strftime('%Y-W%W', ts) AS week,
+    COUNT(DISTINCT ref_id) FILTER (WHERE ref_id != '') AS videos,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL)) AS total_usd,
+    SUM(CAST(json_extract(content,'$.cost.total_usd') AS REAL))
+        / NULLIF(COUNT(DISTINCT ref_id) FILTER (WHERE ref_id != ''), 0) AS avg_per_video
+FROM events
+WHERE kind='model_run'
+GROUP BY week;
+
+
+-- ─── Supervisor proposals + canary ──────────────────────────────────────
+CREATE VIEW IF NOT EXISTS proposals AS
+SELECT
+    id, ts,
+    json_extract(content,'$.id') AS proposal_id,
+    json_extract(content,'$.category') AS category,
+    json_extract(content,'$.priority') AS priority,
+    json_extract(content,'$.title') AS title,
+    json_extract(content,'$.risk') AS risk,
+    json_extract(content,'$.auto_promotable') AS auto_promotable,
+    CAST(json_extract(content,'$.impact.cost_per_video_delta_usd') AS REAL)
+        AS cost_delta_usd,
+    CAST(json_extract(content,'$.impact.latency_delta_pct') AS REAL)
+        AS latency_delta_pct,
+    CAST(json_extract(content,'$.impact.quality_delta_pct') AS REAL)
+        AS quality_delta_pct
+FROM events
+WHERE kind='proposal';
+
+CREATE VIEW IF NOT EXISTS proposals_pending AS
+SELECT p.* FROM proposals p
+WHERE NOT EXISTS (
+    SELECT 1 FROM events d
+    WHERE d.kind='proposal_decision' AND d.ref_id = p.proposal_id
+);
+
+CREATE VIEW IF NOT EXISTS proposal_decisions AS
+SELECT
+    ref_id AS proposal_id,
+    actor AS decided_by,
+    ts AS decided_at,
+    json_extract(content,'$.decision') AS decision,
+    json_extract(content,'$.reason') AS reason
+FROM events
+WHERE kind='proposal_decision';
+
+CREATE VIEW IF NOT EXISTS canaries AS
+SELECT
+    ref_id AS proposal_id,
+    ts,
+    CAST(json_extract(content,'$.traffic_pct') AS INTEGER) AS traffic_pct,
+    CAST(json_extract(content,'$.days') AS INTEGER) AS days,
+    json_extract(content,'$.verdict') AS verdict,
+    json_extract(content,'$.metrics') AS metrics_json
+FROM events
+WHERE kind='canary';
+
+
+-- ─── Outcome tracking (post-publish ground truth) ───────────────────────
+CREATE VIEW IF NOT EXISTS outcomes AS
+SELECT
+    ref_id AS feature_id,
+    REPLACE(actor, 'platform:', '') AS platform,
+    ts AS fetched_at,
+    CAST(json_extract(content,'$.impressions') AS INTEGER) AS impressions,
+    CAST(json_extract(content,'$.watch_through_pct') AS REAL) AS watch_through_pct,
+    CAST(json_extract(content,'$.avg_watch_s') AS REAL) AS avg_watch_s,
+    CAST(json_extract(content,'$.engagement_rate') AS REAL) AS engagement_rate,
+    CAST(json_extract(content,'$.ctr') AS REAL) AS ctr,
+    CAST(json_extract(content,'$.conversion_n') AS INTEGER) AS conversion_n
+FROM events
+WHERE kind='outcome';
+
+
+-- ─── Eval tier results ──────────────────────────────────────────────────
+CREATE VIEW IF NOT EXISTS eval_tier_results AS
+SELECT
+    REPLACE(kind, 'eval_', '') AS tier,
+    actor AS evaluator,
+    ref_id AS feature_id,
+    ts,
+    json_extract(content,'$.dimension') AS dimension,
+    CAST(json_extract(content,'$.score') AS REAL) AS score,
+    CAST(json_extract(content,'$.pass') AS INTEGER) AS pass
+FROM events
+WHERE kind IN ('eval_tier1','eval_tier2','eval_tier3');
+
+
+-- ─── Cost vs Outcome (efficiency curve) ─────────────────────────────────
+CREATE VIEW IF NOT EXISTS cost_vs_outcome AS
+SELECT
+    c.feature_id,
+    c.total_usd,
+    o.watch_through_pct,
+    o.engagement_rate,
+    o.ctr,
+    -- Efficiency: outcome per dollar
+    CASE WHEN c.total_usd > 0
+         THEN o.watch_through_pct / c.total_usd
+         ELSE NULL END AS watch_per_dollar
+FROM cost_per_video c
+LEFT JOIN outcomes o ON c.feature_id = o.feature_id;

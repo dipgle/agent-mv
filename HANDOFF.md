@@ -129,15 +129,47 @@ AI assistant tự dùng các tools này. Bạn không cần gọi tay.
 
 (Tùy bạn điền — Slack/email/GitHub issue tracker)
 
-## 10. Phase roadmap
+## 10. Supervisor (vai 5) — đã ship Phase 1
+
+Đã có module supervisor autonomous chạy daily + weekly cron:
+- `supervisor/audit.py` — bottleneck/regression/waste/reliability
+- `supervisor/cost_rollup.py` — per-video/modality/model spend rollup
+- `supervisor/scan.py` — HF/arxiv/pricing/ComfyUI scan
+- `supervisor/propose.py` — LLM-generated improvement proposals
+- `supervisor/auto_promote.py` — canary + auto-promote low-risk
+
+Cost tracking là first-class: mỗi model_run event có `cost.cloud_usd + compute_usd + electricity_usd`. Cost gate ở `lib/cost_gate.py` enforces cap per video/day/month với cascade fallback.
+
+Setup cron để supervisor chạy auto:
+```bash
+crontab -e
+0 2 * * * cd <project> && bash orchestrator/cron/daily.sh > logs/cron-daily.log 2>&1
+0 9 * * 1 cd <project> && bash orchestrator/cron/weekly.sh > logs/cron-weekly.log 2>&1
+```
+
+Outputs vào `eval/reports/`:
+- `audit_YYYY-MM-DD.md` — daily audit
+- `cost_YYYY-MM-DD.md` — daily cost rollup
+- `scan_YYYY-MM-DD.md` — weekly external scan
+- `improvement_queue.md` — pending proposals sorted by priority
+
+Stub phần còn lại (real implementation cần dev fill):
+- `auto_promote.py` chỉ log decision; chưa thực sự apply config change (cần modify `infra/litellm.yaml` hoặc `workflows/*.json`)
+- `propose.py` LLM call route qua `planner` (local); cho proposal phức tạp nên route sang `planner-script-hard` (Claude Opus)
+- `audit.py` regression check cần baseline snapshot — chạy `regression_check.py snapshot` 1 lần khởi điểm
+
+## 11. Phase roadmap
 
 | Phase | Status | Effort |
 |---|---|---|
 | 0. Setup script cross-OS | ✅ DONE | — |
-| 1. Workflow JSON thật + smoke test | ⏳ TODO | 2-4 giờ |
-| 2. Real video render end-to-end | ⏳ TODO | 1-2 ngày |
-| 3. Eval dashboard hoạt động | ⏳ TODO | 1 ngày |
-| 4. GUI launcher (Tkinter/PySide) | 🔮 future | 2 ngày |
-| 5. Inno Setup installer (Win) | 🔮 future | 8 ngày |
-| 6. Web chat router MCP (Adjudicator vote free) | 🔮 future | 3 ngày |
-| 7. Auto-discovery + champion/challenger | 🔮 future | 1 tuần |
+| 1. Cost tracking + Supervisor cron foundation | ✅ DONE | — |
+| 2. Workflow JSON thật + smoke test | ⏳ TODO | 2-4 giờ |
+| 3. Real video render end-to-end | ⏳ TODO | 1-2 ngày |
+| 4. Outcome API client (YouTube/TikTok/Meta) → calibrate panel | ⏳ TODO | 3 ngày |
+| 5. Tier 2 reviewer panel ensemble (4 model) | ⏳ TODO | 2 ngày |
+| 6. Auto_promote.py: actually mutate config + roll back | ⏳ TODO | 2 ngày |
+| 7. Eval dashboard data endpoint (HTTP serving SQL VIEWs) | ⏳ TODO | 1 ngày |
+| 8. GUI launcher (Tkinter/PySide) | 🔮 future | 2 ngày |
+| 9. Inno Setup installer (Win) | 🔮 future | 8 ngày |
+| 10. Web chat router MCP (Adjudicator vote free) | 🔮 future | 3 ngày |

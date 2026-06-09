@@ -2,7 +2,9 @@
 
 Tự động hoá sản xuất video (TikTok / Reels / YouTube short / explainer) bằng AI local: kịch bản, hình ảnh, video, voiceover, nhạc, caption, dựng phim.
 
-Pipeline 4 vai: **Researcher → Planner → Executor (6 modality) → Reviewer**. Local-first qua Ollama + ComfyUI; escalation cloud (Claude/GPT) tùy chọn.
+Pipeline 4 vai sản xuất: **Researcher → Planner → Executor (6 modality) → Reviewer** + vai thứ 5 **Supervisor** chạy nền (daily + weekly cron): audit hệ thống, scan ngoài (HF/arxiv/pricing), đề xuất cải tiến, **chi phí sản xuất là metric trục chính**.
+
+Local-first qua Ollama + ComfyUI; escalation cloud (Claude/GPT) tùy chọn qua cascade với cost gate.
 
 ## Quick start
 
@@ -61,10 +63,21 @@ video/
 │   └── models.md            ← model inventory + role mapping
 ├── orchestrator/
 │   ├── pipeline.py          ← entry point 4 roles
-│   └── lib/
-│       ├── devlog.py        ← sqlite event logging
-│       ├── litellm_client.py ← LLM wrapper (OpenAI-compat → :4000)
-│       └── comfy_client.py  ← ComfyUI HTTP API client
+│   ├── lib/
+│   │   ├── devlog.py        ← sqlite event logging
+│   │   ├── litellm_client.py ← LLM wrapper (OpenAI-compat → :4000) + cost gate
+│   │   ├── comfy_client.py  ← ComfyUI HTTP API client
+│   │   ├── cost.py          ← cost estimation (cloud + compute + electricity)
+│   │   └── cost_gate.py     ← hard cap per video/day/month + cascade fallback
+│   ├── supervisor/          ← Vai 5: R&D agent
+│   │   ├── audit.py         ← bottleneck/regression/waste/reliability (daily)
+│   │   ├── cost_rollup.py   ← per-video/modality/model rollup (daily)
+│   │   ├── scan.py          ← HF/arxiv/pricing/ComfyUI scan (weekly)
+│   │   ├── propose.py       ← LLM → improvement proposals (weekly)
+│   │   └── auto_promote.py  ← canary + auto-promote low-risk (daily/weekly)
+│   └── cron/
+│       ├── daily.sh + daily.ps1      ← run audit + rollup + auto-promote
+│       └── weekly.sh + weekly.ps1    ← run scan + propose
 ├── workflows/               ← ComfyUI workflow JSON per modality
 │   ├── README.md
 │   ├── flux_keyframe.json.stub
@@ -76,15 +89,56 @@ video/
 │   ├── compose.sh           ← ffmpeg final compose (Linux/Mac)
 │   └── compose.ps1          ← Windows port
 ├── eval/
-│   ├── schema.sql           ← devlog VIEW extensions
-│   ├── golden/              ← fixed benchmark tasks
-│   └── dashboard.html       ← vanilla JS eval dashboard
+│   ├── schema.sql           ← devlog VIEW extensions (cost/proposals/canary/outcome)
+│   ├── golden/              ← fixed benchmark tasks per modality
+│   ├── golden_regression/   ← baseline snapshots for drift detection
+│   ├── benchmarks/          ← cached pricing + comfy node lists + scan output
+│   ├── reports/             ← daily audit + cost + weekly scan + improvement queue
+│   ├── canary/              ← active canary state per proposal
+│   └── dashboard.html       ← vanilla JS — Cost tab + Proposals tab + Audit tab + per-modality
 ├── logs/
 │   └── devlog.sqlite        ← source of truth (events, UCs, TCs, runs)
 └── memory/
     ├── active-context.md
     ├── session-summary.md
     └── discovered-knowledge.md
+```
+
+## Supervisor — luôn rà soát, scan ngoài, tối ưu cost
+
+Vai thứ 5 chạy autonomous:
+
+| Job | Cadence | Mục tiêu |
+|---|---|---|
+| **Audit** (`supervisor/audit.py`) | daily | bottleneck (slowest), regression (vs baseline), waste (duplicate prompts), reliability (success_rate <95%) |
+| **Cost rollup** (`supervisor/cost_rollup.py`) | daily | per-video / per-modality / per-model spend; month-to-date burn vs cap |
+| **External scan** (`supervisor/scan.py`) | weekly | HF trending + arxiv efficiency papers + LiteLLM pricing diff + ComfyUI new nodes |
+| **Propose** (`supervisor/propose.py`) | weekly | LLM-generated improvement proposals from scan findings + audit signals |
+| **Auto-promote** (`supervisor/auto_promote.py`) | daily | start canary on low-risk proposals; promote/rollback after 7d |
+
+**Chi phí = first-class metric**:
+- `lib/cost.py` tracks cloud + compute + electricity per call
+- `lib/cost_gate.py` enforces cap per video (default $5) + cascade fallback to cheaper model
+- Dashboard tab "💰 Cost" hiển thị month-to-date burn, top spend videos, cost vs watch-through
+
+Setup cron:
+```bash
+# Linux/Mac
+crontab -e
+# Add:
+0 2 * * * cd /path/to/agent-mv && bash orchestrator/cron/daily.sh > logs/cron-daily.log 2>&1
+0 9 * * 1 cd /path/to/agent-mv && bash orchestrator/cron/weekly.sh > logs/cron-weekly.log 2>&1
+
+# Windows: use Task Scheduler with orchestrator\cron\daily.ps1 / weekly.ps1
+```
+
+Cấu hình ngân sách qua env:
+```
+MAX_COST_PER_VIDEO_USD=5
+MAX_COST_PER_DAY_USD=50
+MAX_COST_PER_MONTH_USD=500
+PIPELINE_HARDWARE=M3_Max_owned   # or RTX_4090_owned, RTX_4090_runpod, ...
+ELECTRICITY_USD_KWH=0.12
 ```
 
 ## Stack

@@ -37,14 +37,29 @@ def log_model_run(
     output_ref: str,
     latency_ms: int,
     accepted: int = 1,
-    cost_usd: float = 0.0,
+    cost: dict | float | None = None,
     modality: str = "text",
     channel: str = "api",
     metrics: dict | None = None,
     feature_id: str = "",
     shot_idx: int | None = None,
 ) -> int:
-    """Log model invocation. Used by orchestrator wrapper."""
+    """
+    Log model invocation. Used by orchestrator wrapper.
+
+    `cost` may be either:
+      - A dict from lib.cost.CostBreakdown.as_dict() (preferred — full breakdown)
+      - A float (legacy, treated as total_usd)
+      - None (defaults to 0)
+    """
+    if isinstance(cost, (int, float)):
+        cost_dict = {"total_usd": float(cost), "cloud_usd": 0.0,
+                     "compute_usd": 0.0, "electricity_usd": 0.0}
+    elif cost is None:
+        cost_dict = {"total_usd": 0.0}
+    else:
+        cost_dict = cost
+
     return append(
         kind="model_run",
         actor=role,
@@ -56,7 +71,8 @@ def log_model_run(
             "channel": channel,
             "tier": tier_of(model),
             "latency_ms": latency_ms,
-            "cost_usd": cost_usd,
+            "cost": cost_dict,
+            "cost_usd": cost_dict.get("total_usd", 0.0),  # legacy compat
             "accepted": accepted,
             "shot_idx": shot_idx,
             "output_ref": output_ref,
@@ -122,3 +138,77 @@ def tier_of(model: str) -> str:
     if "claude-opus" in model or "gpt-5" in model: return "S"
     if "runway/" in model or "pika/" in model: return "S"
     return "?"
+
+
+# ─── Supervisor event helpers ─────────────────────────────────────────────
+
+def log_proposal(proposal: dict) -> int:
+    """Log improvement proposal from Supervisor.
+
+    Schema: {id, category, priority, title, hypothesis, evidence, impact,
+             implementation_steps, risk, test_plan, rollback, auto_promotable, deadline}
+    """
+    return append(
+        kind="proposal",
+        actor="supervisor",
+        ref_type="system",
+        ref_id=proposal.get("id", ""),
+        content=proposal,
+    )
+
+
+def log_proposal_decision(proposal_id: str, decision: str, reason: str = "",
+                          actor: str = "supervisor") -> int:
+    """decision in {auto_promoted, promoted, rejected, deferred, archived}"""
+    return append(
+        kind="proposal_decision",
+        actor=actor,
+        ref_type="proposal",
+        ref_id=proposal_id,
+        content={"decision": decision, "reason": reason},
+    )
+
+
+def log_canary(proposal_id: str, traffic_pct: int, days: int,
+               metrics: dict, verdict: str) -> int:
+    """Log canary trial result. verdict in {promote, rollback, extend}"""
+    return append(
+        kind="canary",
+        actor="supervisor",
+        ref_type="proposal",
+        ref_id=proposal_id,
+        content={
+            "traffic_pct": traffic_pct,
+            "days": days,
+            "metrics": metrics,
+            "verdict": verdict,
+        },
+    )
+
+
+def log_outcome(feature_id: str, platform: str, data: dict) -> int:
+    """Log post-publish outcome (watch-through, engagement)."""
+    return append(
+        kind="outcome",
+        actor=f"platform:{platform}",
+        ref_type="feature",
+        ref_id=feature_id,
+        content=data,
+    )
+
+
+def log_eval(tier: str, dimension: str, feature_id: str,
+             evaluator: str, result: dict) -> int:
+    """Log Tier 1/2/3 evaluation result.
+
+    tier in {tier1, tier2, tier3}
+    dimension in {technical, aesthetic, motion, narrative, brand, compliance, hook}
+    evaluator: 'auto' for tier1, model name for tier2/3
+    """
+    return append(
+        kind=f"eval_{tier}",
+        actor=evaluator,
+        ref_type="feature",
+        ref_id=feature_id,
+        content={"dimension": dimension, **result},
+    )

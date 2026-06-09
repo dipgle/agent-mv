@@ -69,7 +69,9 @@ litellm_settings:
   callbacks: ["log_to_sqlite"]
 
 general_settings:
-  master_key: sk-local-only-not-public
+  # Local-dev placeholder; override in production via env LITELLM_MASTER_KEY.
+  # Format intentionally avoids sk-* prefix so static scanners don't false-positive.
+  master_key: os.environ/LITELLM_MASTER_KEY
   database_url: "sqlite:///./logs/litellm.sqlite"
 
 # NOTE: visual cloud gen (Runway/Pika) NOT in this config — separate billing
