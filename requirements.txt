@@ -24,7 +24,7 @@ opencv-python>=4.10.0    # frame sample for Reviewer
 
 # HuggingFace download (model weights)
 huggingface_hub>=0.26.0
-hf_transfer>=0.1.8       # faster parallel download
+hf_transfer>=0.1.9       # faster parallel download
 
 # HTTP
 requests>=2.31.0
