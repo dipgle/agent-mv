@@ -16,6 +16,7 @@ langgraph>=0.2.0
 ffmpeg-python>=0.2.0     # ffmpeg wrapper (still requires ffmpeg binary on PATH)
 soundfile>=0.12.0
 librosa>=0.10.0          # BPM detect, audio analysis
+pyloudnorm>=0.1.1        # EBU R128 LUFS measurement for audio QC
 
 # Image / vision
 Pillow>=10.0.0

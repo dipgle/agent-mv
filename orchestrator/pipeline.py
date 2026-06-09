@@ -44,7 +44,8 @@ except ImportError:
 # Add orchestrator/ to sys.path so `from lib import ...` works
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib import devlog, litellm_client, comfy_client
+from lib import (devlog, litellm_client, comfy_client,
+                 eval_tier1, eval_brand, eval_hook, eval_tier2, eval_aggregate)
 
 
 # ─── Role: Researcher ─────────────────────────────────────────────────────
@@ -235,41 +236,50 @@ def compose(feature_dir: Path, feature_id: str) -> Path:
     return final
 
 
-# ─── Role: Reviewer ───────────────────────────────────────────────────────
-REVIEWER_SYSTEM = """You are the Reviewer. Output strict JSON:
-{
-  "verdict": "approved" or "rejected",
-  "overall_score": 0-100,
-  "issues": [{"shot": N, "type": "pacing|audio_sync|brand|composition|motion",
-              "severity": "critical|major|minor", "msg": "..."}],
-  "suggestions": ["..."]
-}
-"""
+# ─── Role: Reviewer — 4-tier evaluation pipeline ─────────────────────────
+def reviewer(final: Path, shotlist: dict, brand: dict, feature_id: str,
+             transcript: str = "", target_aspect: str = "9:16",
+             allow_paid_panel: bool = False) -> dict:
+    """
+    Multi-tier reviewer.
+
+    Tier 1 — deterministic checkers (ffprobe, LUFS, freeze, scene, palette)
+    Tier 1' — brand auto (aspect, logo safe area, do_not_use scan)
+    Tier 1'' — hook scorer (3-second dedicated)
+    Tier 2 — LLM panel ensemble (3-4 models in parallel; trim-mean aggregate)
+    Aggregate — per-dimension verdict; never a single overall score
+    """
+    tier1 = eval_tier1.evaluate(final, brand, feature_id).as_dict()
+    if tier1["critical_fails"]:
+        # Short-circuit — don't burn LLM cost if Tier 1 already rejects
+        verdict = {
+            "verdict": "rejected",
+            "blocker_dimensions": tier1["critical_fails"],
+            "tier1": tier1,
+            "tier2_skipped": "tier1 critical fail",
+        }
+        devlog.append("eval_verdict", "supervisor", "feature", feature_id, verdict)
+        return verdict
+
+    brand_auto = eval_brand.evaluate(final, brand, transcript, target_aspect, feature_id)
+    hook = eval_hook.evaluate(final, feature_id)
+    tier2 = eval_tier2.evaluate(shotlist, brand, transcript, tier1, hook,
+                                feature_id, allow_paid=allow_paid_panel)
+    return eval_aggregate.aggregate(tier1, hook, brand_auto, tier2, feature_id)
 
 
-def reviewer(final: Path, shotlist: dict, brand: dict, feature_id: str) -> dict:
-    """Sample 6 frames + transcript -> LLM critique."""
-    # Extract 6 frames @ even intervals for review context.
-    frames_dir = final.parent / "review_frames"
-    frames_dir.mkdir(exist_ok=True)
-    try:
-        subprocess.check_call([
-            "ffmpeg", "-y", "-i", str(final),
-            "-vf", "fps=1/5", str(frames_dir / "frame_%02d.png"),
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        pass
-
-    prompt = f"""Review this {shotlist.get('shotlist', [{}])[0].get('duration_s', 0) * len(shotlist.get('shotlist', []))}s video.
-Shotlist: {json.dumps(shotlist, ensure_ascii=False)}
-Brand: {json.dumps(brand, ensure_ascii=False)}
-Check: pacing variance, audio sync, brand match, hook strength, CTA clarity.
-"""
+def _legacy_reviewer_stub(final: Path, shotlist: dict, brand: dict,
+                          feature_id: str) -> dict:
+    """Kept temporarily for backwards-compatibility callers."""
+    REVIEWER_SYSTEM_FALLBACK = """You are the Reviewer.  Output strict JSON
+matching {verdict, overall_score, issues, suggestions}."""
+    prompt = (f"Review video. Shotlist: {json.dumps(shotlist, ensure_ascii=False)[:1500]}\n"
+              f"Brand: {json.dumps(brand, ensure_ascii=False)[:1000]}")
     result, _ = litellm_client.call_json(
         role="reviewer",
         model="reviewer",
         prompt=prompt,
-        system=REVIEWER_SYSTEM,
+        system=REVIEWER_SYSTEM_FALLBACK,
         feature_id=feature_id,
     )
     return result
@@ -326,19 +336,39 @@ def main():
         print("[compose] ffmpeg...")
         final = compose(feature_dir, args.feature_id)
 
-        print(f"[4/4] Reviewer...")
-        critique = reviewer(final, plan, brand, args.feature_id)
+        print(f"[4/4] Reviewer (4-tier eval)...")
+        transcript_path = feature_dir / "subs.srt"
+        transcript = transcript_path.read_text() if transcript_path.exists() else voice_script
+        critique = reviewer(
+            final=final,
+            shotlist=plan,
+            brand=brand,
+            feature_id=args.feature_id,
+            transcript=transcript,
+            target_aspect=args.aspect,
+        )
         (feature_dir / "critique.json").write_text(
             json.dumps(critique, indent=2, ensure_ascii=False)
         )
 
-        if critique.get("verdict") == "approved":
-            print(f"\n✓ APPROVED — score {critique.get('overall_score')}")
-            print(f"  Output: {final}")
-            return
-        print(f"\n✗ REJECTED — score {critique.get('overall_score')} — retry")
+        v = critique.get("verdict", "rejected")
+        score = critique.get("tier2_overall_score", "n/a")
+        blockers = critique.get("blocker_dimensions", [])
+        print(f"  verdict={v}  score={score}  blockers={blockers}")
 
-    print(f"\n⚠ Max retries reached. Adjudicator needed.")
+        if v == "approved":
+            print(f"\n[OK] APPROVED  Output: {final}")
+            return
+        if v == "needs_adjudicator":
+            print(f"\n[ADJ] Panel disagreed — Tier 3 frontier adjudicator needed")
+            devlog.log_decision("orchestrator", args.feature_id,
+                                decision="adjudicator_needed",
+                                rationale=f"panel sigma exceeded "
+                                          f"on {critique.get('shot_issues',[])}")
+            return
+        print(f"\n[X] REJECTED — re-render shots with critical issues")
+
+    print(f"\n[!] Max retries reached. Adjudicator needed.")
     devlog.log_decision("orchestrator", args.feature_id,
                         decision="adjudicator_needed",
                         rationale=f"{args.max_iter} reviewer rejects")

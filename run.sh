@@ -34,9 +34,7 @@ case "$cmd" in
     cron-daily)  bash orchestrator/cron/daily.sh ;;
     cron-weekly) bash orchestrator/cron/weekly.sh ;;
     dashboard)
-        if command -v open >/dev/null; then open eval/dashboard.html
-        elif command -v xdg-open >/dev/null; then xdg-open eval/dashboard.html
-        else echo "Open eval/dashboard.html in your browser"; fi ;;
+        python eval/serve.py "$@" ;;
     *)
         echo "Usage: ./run.sh <command> [args]"
         echo ""

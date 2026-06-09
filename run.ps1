@@ -35,7 +35,7 @@ switch ($cmd) {
     "promote"     { python orchestrator\supervisor\auto_promote.py @rest; break }
     "cron-daily"  { & ".\orchestrator\cron\daily.ps1"; break }
     "cron-weekly" { & ".\orchestrator\cron\weekly.ps1"; break }
-    "dashboard"   { Start-Process "eval\dashboard.html"; break }
+    "dashboard"   { python eval\serve.py @rest; break }
     default {
         Write-Host "Usage: .\run.ps1 <command> [args]"
         Write-Host ""
