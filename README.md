@@ -4,7 +4,9 @@ Tự động hoá sản xuất video (TikTok / Reels / YouTube short / explainer
 
 Pipeline 4 vai sản xuất: **Researcher → Planner → Executor (6 modality) → Reviewer** + vai thứ 5 **Supervisor** chạy nền (daily + weekly cron): audit hệ thống, scan ngoài (HF/arxiv/pricing), đề xuất cải tiến, **chi phí sản xuất là metric trục chính**.
 
-Local-first qua Ollama + ComfyUI; escalation cloud (Claude/GPT) tùy chọn qua cascade với cost gate.
+**Ưu tiên chi phí thấp nhất**: cascade mặc định **local (Ollama + ComfyUI) → free tier (Tier W web chat / Codex pool free trial) → paid cloud** (chỉ khi các tầng trên không đủ). Cost gate enforce hard cap; cost là metric trục chính của Supervisor.
+
+> ⚠ **Spec ahead of implementation** — README mô tả **target state** (quota-aware cascade, live model registry, provider discovery, license metadata gate). Code thực tế hiện ~20% match contract: ✅ Tier W (web chat) sẵn sàng + canary structure có; ⚠ license gate dạng binary (`COMMERCIAL_MODE`); ❌ `infra/quotas.json` chưa tồn tại, cascade vẫn hardcoded dict, USD cap (`MAX_COST_PER_VIDEO_USD=5`) **vẫn đang là active gate** trong [cost_gate.py:44-46](orchestrator/lib/cost_gate.py#L44-L46). Đừng tin README là source of truth về behavior. Gap matrix + path-to-green: [STATUS.md](STATUS.md). Implementation queue 5 batch: [TODO.md](TODO.md).
 
 ## Quick start
 
@@ -117,10 +119,11 @@ Vai thứ 5 chạy autonomous:
 | **Propose** (`supervisor/propose.py`) | weekly | LLM-generated improvement proposals from scan findings + audit signals |
 | **Auto-promote** (`supervisor/auto_promote.py`) | daily | start canary on low-risk proposals; promote/rollback after 7d |
 
-**Chi phí = first-class metric**:
-- `lib/cost.py` tracks cloud + compute + electricity per call
-- `lib/cost_gate.py` enforces cap per video (default $5) + cascade fallback to cheaper model
-- Dashboard tab "💰 Cost" hiển thị month-to-date burn, top spend videos, cost vs watch-through
+**Chi phí = first-class metric** (cascade ưu tiên chi phí thấp nhất, không dùng cap USD cứng):
+- `lib/cost.py` tracks cloud + compute + electricity per call (cho rollup/dashboard, không phải gate)
+- `lib/cost_gate.py` quota-aware routing: đọc state thực tế từng model (free trial tokens còn lại, rate-limit window, local = không giới hạn, paid = pay-as-you-go) trong `infra/quotas.json`; auto-switch sang tier tiếp theo khi model hiện tại exhausted (429 / token quota = 0 / capability mismatch). KHÔNG có `MAX_COST_PER_VIDEO_USD` — pipeline không bị chặn bởi ngân sách giả định
+- **Đề xuất khởi đầu = mức chi phí tối thiểu**: mỗi role/modality bắt đầu ở **local Ollama/ComfyUI** (cost ≈ điện); chỉ leo lên free cloud tier (Tier W web chat, Codex pool free trial, Groq/Cerebras/OpenRouter free) khi local fail capability check, rồi paid cloud chỉ khi free tier đã exhausted thật sự
+- Dashboard tab "💰 Cost" hiển thị: % việc xử lý ở tầng $0, tokens còn lại từng free tier, model nào sắp cạn quota, top spend videos, cost vs watch-through
 
 Setup cron:
 ```bash
@@ -133,32 +136,47 @@ crontab -e
 # Windows: use Task Scheduler with orchestrator\cron\daily.ps1 / weekly.ps1
 ```
 
-Cấu hình ngân sách qua env:
+Cấu hình routing & hardware qua env (KHÔNG có budget cap USD):
 ```
-MAX_COST_PER_VIDEO_USD=5
-MAX_COST_PER_DAY_USD=50
-MAX_COST_PER_MONTH_USD=500
-PIPELINE_HARDWARE=M3_Max_owned   # or RTX_4090_owned, RTX_4090_runpod, ...
-ELECTRICITY_USD_KWH=0.12
+MODEL_QUOTAS_FILE=infra/quotas.json   # state per-model: tokens_remaining, rate_limit_reset, last_429_at
+COST_TRACE_DB=logs/devlog.sqlite      # rollup-only (audit), không dùng để gate
+PIPELINE_HARDWARE=M3_Max_owned        # or RTX_4090_owned, RTX_4090_runpod, ...
+ELECTRICITY_USD_KWH=0.12              # input cho cost.py rollup
 ```
+
+`infra/quotas.json` được supervisor `cost_rollup.py` cập nhật mỗi run (decrement tokens_remaining từ provider response headers `x-ratelimit-remaining-*`); `cost_gate.py` đọc snapshot này trước mỗi call để pick tier rẻ nhất còn quota. Nếu file thiếu/stale → assume tier còn quota và để 429 từ provider trigger cascade.
+
+**Model registry là live — không pin tay** (xử lý model churn liên tục):
+- Provider thêm/xoá model bất cứ lúc nào; pipeline KHÔNG hardcode danh sách model trong code. Mỗi lần khởi động pipeline probe các surface ổn định để discover hiện trạng:
+  - Local: `Ollama /api/tags`, `ComfyUI /object_info`
+  - Free cloud: `OpenRouter /api/v1/models`, `Groq /openai/v1/models`, `Cerebras /v1/models`, `Mistral /v1/models`
+  - Paid: `Anthropic /v1/models`, `OpenAI /v1/models`, `Gemini /v1beta/models`
+- `infra/quotas.json` được rebuild từ discovery + license check (`docs/conventions.md` "License hygiene"). Model bị provider deprecate (404 / removed from listing) → mark `deactivated`, cascade skip. Model mới xuất hiện → auto-add với `tokens_remaining` từ ratelimit headers ở call đầu tiên
+- Weekly Supervisor scan (`supervisor/scan.py`) cross-check HF trending + arxiv + provider pricing; `propose.py` đề xuất swap khi xuất hiện model rẻ hơn / mạnh hơn cùng license tier; `auto_promote.py` chạy canary 7d trước khi promote
+- **Tên model cụ thể ở mọi nơi trong README là snapshot, không phải contract**. Live source = `infra/models.md` (license-gated catalog) + `infra/quotas.json` (live quota state)
 
 ## Stack
 
-All default models are commercial-OK (Apache 2.0 / MIT / royalty-free).
-See `docs/conventions.md` "License hygiene" for the full policy.
+**Tool surfaces là contract (ổn định); tên model cụ thể là snapshot** — model picks bên dưới
+tính đến **2026-06-09**, pipeline tự discover + curate qua Supervisor scan (xem "Model registry
+là live" ở trên). Khi provider deprecate / publish model mới, registry tự cập nhật; README có
+thể stale, source of truth là `infra/models.md` + `infra/quotas.json`.
 
-| Layer | Tool | License | Vai trò |
-|---|---|---|---|
-| Text LLM | Ollama (`qwen3-coder:30b`, `deepseek-r1:14b`, `qwen3:32b`, `qwen2.5-vl:7b`) | Apache 2.0 / MIT | Planner, Reviewer, Researcher |
-| Image gen | ComfyUI + **FLUX.1-schnell** | Apache 2.0 | Keyframe per shot (4-step, ~7× faster than dev) |
-| Video gen | ComfyUI + **Wan2.1-T2V-14B** | Apache 2.0 | Image-to-video motion |
-| Voice TTS | ComfyUI + F5-TTS | Apache 2.0 | Voiceover (zero-shot clone) |
-| Music | **Pixabay Music API** + CC0 fallback | Royalty-free / CC0 | BGM (replaces Stable Audio Open) |
-| STT | ComfyUI + Whisper large-v3 | MIT | Auto captions |
-| Router | LiteLLM proxy | Apache 2.0 | Local → free cloud → paid cascade |
-| Orchestrator | CrewAI + LangGraph | MIT | 4-role pipeline |
-| Compose | ffmpeg + DaVinci Resolve | LGPL / free | Final assembly |
-| Eval | SQLite + vanilla JS dashboard | MIT | Continuous improvement |
+License contract: default chỉ chấp nhận Apache 2.0 / MIT / royalty-free (xem
+`docs/conventions.md` "License hygiene"). Discovery loop bỏ qua model không pass license gate.
+
+| Layer | Tool (stable) | Snapshot models 2026-06-09 | License | Vai trò |
+|---|---|---|---|---|
+| Text LLM | Ollama | qwen3-coder:30b, deepseek-r1:14b, qwen3:32b, qwen2.5-vl:7b | Apache 2.0 / MIT | Planner, Reviewer, Researcher |
+| Image gen | ComfyUI | FLUX.1-schnell | Apache 2.0 | Keyframe per shot |
+| Video gen | ComfyUI | Wan2.1-T2V-14B | Apache 2.0 | Image-to-video motion |
+| Voice TTS | ComfyUI | F5-TTS | Apache 2.0 | Voiceover (zero-shot clone) |
+| Music | Pixabay Music API + CC0 fallback | — | Royalty-free / CC0 | BGM |
+| STT | ComfyUI | Whisper large-v3 | MIT | Auto captions |
+| Router | LiteLLM proxy | — | Apache 2.0 | Cascade local → free → paid |
+| Orchestrator | CrewAI + LangGraph | — | MIT | 4-role pipeline |
+| Compose | ffmpeg + DaVinci Resolve | — | LGPL / free | Final assembly |
+| Eval | SQLite + vanilla JS dashboard | — | MIT | Continuous improvement |
 
 ## Workflow
 
@@ -196,7 +214,11 @@ Cụ thể: xem [HANDOFF.md](HANDOFF.md).
 
 ## License notice
 
-As of 2026-06-09, all default models in this pipeline are commercial-OK:
+**Contract: pipeline default chỉ chạy model commercial-OK** (Apache 2.0 / MIT / royalty-free).
+Discovery loop kiểm license metadata mỗi model trước khi đưa vào registry — bất kỳ model nào
+(cũ hoặc mới publish) không pass license gate sẽ bị filter out tự động.
+
+Snapshot 2026-06-09 các model đang chạy mặc định:
 
 | Model | License | Commercial use |
 |---|---|---|
@@ -207,26 +229,31 @@ As of 2026-06-09, all default models in this pipeline are commercial-OK:
 | Pixabay Music API | Pixabay License (royalty-free) | Yes |
 | Qwen3 / DeepSeek-R1 | Apache 2.0 / MIT | Yes |
 
-Personal/research-only models (FLUX.1-dev, LTX-Video, Stable Audio Open) are
-available via `COMMERCIAL_MODE=0` env var but must NOT be used for client work.
-See `docs/conventions.md` "License hygiene" for the full policy and process
-for adding new models.
+Bảng trên có thể thay đổi khi provider deprecate / publish version mới; live source
+ở `infra/models.md`. Personal/research-only model (vd FLUX.1-dev, LTX-Video, Stable
+Audio Open) chỉ available qua `COMMERCIAL_MODE=0` env var và KHÔNG được phép dùng cho
+client work — gate này áp cả model hiện tại lẫn model tương lai discovery loop bắt
+được. Xem `docs/conventions.md` "License hygiene" cho full policy + quy trình add
+license tier mới.
 
 ## Web Chat Router (Tier W)
 
-The pipeline's **Adjudicator** role normally calls Claude Opus (paid) or the Codex pool
-(free trial, rotated). The **Web Chat Router** gives a third option: query frontier
-models through their *anonymous web UI* — zero API cost, zero ToS risk from pool abuse.
+Theo nguyên tắc **ưu tiên chi phí thấp nhất**, Adjudicator thử cascade theo thứ tự:
+**Tier W (web chat, $0) → Codex pool (free trial, rotated) → Claude Opus (paid, last resort)**.
+Web Chat Router query frontier models qua *anonymous web UI* — zero API cost, zero ToS risk
+from pool abuse — nên là tầng default cho phần lớn case; paid Opus chỉ kích hoạt khi cần
+reproducibility/quality cao mà Tier W + Codex pool đều không đáp ứng.
 
 ### When to use Tier W vs the Codex pool
 
-| Signal | Use Tier W (`web_chat.*`) | Use Codex pool (`adjudicator`) |
-|--------|--------------------------|-------------------------------|
-| Need a quick 2nd/3rd opinion on a script or hook | Yes | No (overkill, burns quota) |
-| Need reproducible, high-quality brand judgment | No | Yes |
-| Codex pool exhausted (429) | Automatic cascade | — |
-| Budget headroom < $0.50 | Yes | Only if pool has quota |
-| Need citations / web search context | Yes (Perplexity) | No |
+| Signal | Tier W (`web_chat.*`, $0) | Codex pool (free trial) | Claude Opus (paid) |
+|--------|--------------------------|-------------------------|--------------------|
+| Default cho phần lớn case | **Yes** | Cascade khi Tier W fail | Last resort |
+| Quick 2nd/3rd opinion on a script or hook | Yes | No (overkill) | No |
+| Reproducible, high-quality brand judgment | Try first | Yes nếu cần ổn định | Chỉ khi 2 tầng trên không đủ |
+| Codex pool exhausted (429) | Cascade về Tier W | — | Cascade lên paid |
+| Budget headroom < $0.50 | Yes | Yes nếu còn quota | Block |
+| Need citations / web search context | Yes (Perplexity) | No | No |
 
 ### Phase 1 providers (no login, no API key)
 
