@@ -28,14 +28,27 @@ MAX_PER_MONTH = float(os.environ.get("MAX_COST_PER_MONTH_USD", "500.00"))
 
 
 # Cascade order: each key maps to its cheaper fallback (or None if no further fallback)
+# Cascade philosophy:
+#   Local Tier B → Tier A− legit free (Groq/Cerebras/Codestral/OpenRouter)
+#     → Tier S free pool (Codex rotation, Adjudicator/Architect ONLY)
+#     → Tier S paid (last resort, logged decision)
 COST_CASCADE: dict[str, str | None] = {
     # Text LLM cascade (high → low)
-    "adjudicator":               "reviewer-paid",
-    "reviewer-paid":             "reviewer",
+    # Adjudicator chain: try Codex pool first (free if quota), then paid Sonnet
+    "adjudicator":               "adjudicator-paid",
+    "adjudicator-paid":          "reviewer-paid",
+    "reviewer-paid":             "reviewer-fallback",
+    "reviewer-fallback":         "reviewer",
     "reviewer":                  None,   # local — cannot downgrade further
 
+    # Architect: Codex pool → paid Opus (no further fallback; architecture
+    # decisions must be high-quality)
+    "architect":                 "adjudicator-paid",
+
+    # Executor chain: prefer fast free first
     "executor-paid":             "executor-fallback-fast",
-    "executor-fallback-fast":    "executor",
+    "executor-fallback-fast":    "code-fallback",      # Codestral free
+    "code-fallback":             "executor",
     "executor":                  None,
 
     "planner-script-hard":       "planner",
@@ -176,6 +189,27 @@ def _is_local(model: str) -> bool:
         "wan-2.1-14b",
         "f5-tts", "stable-audio-open",
     }
+
+
+# ─── Codex pool discipline ────────────────────────────────────────────────
+# Roles allowed to use the OpenAI Codex pool (rotated free trial accounts).
+# Anything else requesting `codex` is rejected to prevent burning the pool on
+# high-volume Executor/Reviewer traffic.
+CODEX_POOL_ALLOWED_ROLES = {"adjudicator", "architect"}
+
+
+def is_codex_role(model: str) -> bool:
+    return model in ("adjudicator", "architect")
+
+
+def assert_codex_quota_role(role: str) -> None:
+    """Raise if caller is using a non-S role with codex-routed model."""
+    if role not in CODEX_POOL_ALLOWED_ROLES:
+        raise BudgetExceeded(
+            f"role={role} is not allowed on the Codex pool. "
+            f"Allowed: {CODEX_POOL_ALLOWED_ROLES}. "
+            f"Use 'executor-fallback-fast' or 'code-fallback' for high-volume."
+        )
 
 
 def remaining_budget(feature_id: str) -> dict:

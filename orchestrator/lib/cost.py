@@ -57,8 +57,14 @@ CLOUD_PRICING: dict[str, dict] = {
     "claude-haiku-4-5":  {"input": 0.80,  "output": 4.00,  "cache_read": 0.08},
     # OpenAI
     "gpt-5":             {"input": 10.00, "output": 40.00},
-    "gpt-5-codex":       {"input": 5.00,  "output": 20.00},
+    "gpt-5-codex":       {"input": 5.00,  "output": 20.00,
+                          "pool_note": "trial credits or ChatGPT Plus quota — "
+                                       "rotated via LiteLLM key pool; effective "
+                                       "cost depends on which key is active"},
     "gpt-5-mini":        {"input": 0.25,  "output": 1.00},
+    # Mistral free tier (Codestral, code-specific)
+    "codestral-latest":  {"input": 0.0,   "output": 0.0,
+                          "free_quota": "rate-limited free tier"},
     # Google
     "gemini-3-pro":      {"input": 1.25,  "output": 10.00},
     "gemini-3-flash":    {"input": 0.075, "output": 0.30},

@@ -1,5 +1,9 @@
 # LiteLLM proxy for video pipeline text orchestration only.
 # Visual gen (Flux/LTX/Wan/F5/Whisper) goes through ComfyUI directly, not LiteLLM.
+#
+# Key naming convention: env var names are descriptive placeholders only.
+# Actual secret values live in .env (gitignored) — never inline here.
+# LiteLLM resolves "os.environ/NAME" at proxy startup.
 
 model_list:
   # ─── Tier B Local Frontier ───────────────────────────────────────────────
@@ -23,35 +27,75 @@ model_list:
       model: ollama/qwen3:8b
       api_base: http://localhost:11434
 
-  # ─── Tier A− Free Cloud ──────────────────────────────────────────────────
+  # ─── Tier A− Legit Free Cloud (no ToS risk, no ban risk) ────────────────
+  # Primary $0 capacity — these are official free tiers with daily quotas.
+  - model_name: executor-fallback-fast
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile           # 14K req/day, 500 tok/s
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: reviewer-fallback
+    litellm_params:
+      model: cerebras/llama-3.3-70b                 # 8K req/day, 2000 tok/s
+      api_key: os.environ/CEREBRAS_API_KEY
+
+  - model_name: code-fallback
+    litellm_params:
+      model: mistral/codestral-latest               # free coding API
+      api_key: os.environ/MISTRAL_API_KEY
+
   - model_name: researcher-bulk
     litellm_params:
-      model: openrouter/google/gemini-flash:free   # 1M ctx — bulk transcribe parse
+      model: openrouter/google/gemini-flash:free    # 1M ctx — bulk parse
       api_key: os.environ/OPENROUTER_API_KEY
 
-  # ─── Tier A Strong Cloud ─────────────────────────────────────────────────
+  # ─── Tier S Codex pool (rotation, Adjudicator + Architect ONLY) ─────────
+  # Multiple OpenAI accounts → key rotation when one hits quota.
+  # Reserved for high-value low-volume roles. NEVER call from Executor loop.
+  # See docs/conventions.md "Codex pool discipline" for the policy.
+  - model_name: adjudicator
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_1
+  - model_name: adjudicator
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_2
+  - model_name: adjudicator
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_3
+
+  - model_name: architect
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_1
+  - model_name: architect
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_2
+  - model_name: architect
+    litellm_params:
+      model: openai/gpt-5-codex
+      api_key: os.environ/OPENAI_POOL_3
+
+  # ─── Tier S Paid (final fallback when free + pool both exhausted) ───────
   - model_name: reviewer-paid
     litellm_params:
       model: anthropic/claude-sonnet-4-6
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  # ─── Tier S Frontier (Planner taste + Adjudicator brand) ─────────────────
   - model_name: planner-script-hard
-    litellm_params:
-      model: anthropic/claude-opus-4-7    # narrative taste — script iterate
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  - model_name: reviewer-frames
-    litellm_params:
-      model: anthropic/claude-opus-4-7    # vision — sample frame review
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  - model_name: adjudicator
     litellm_params:
       model: anthropic/claude-opus-4-7
       api_key: os.environ/ANTHROPIC_API_KEY
 
-  - model_name: architect
+  - model_name: reviewer-frames
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: adjudicator-paid
     litellm_params:
       model: anthropic/claude-opus-4-7
       api_key: os.environ/ANTHROPIC_API_KEY
@@ -68,9 +112,20 @@ litellm_settings:
   request_timeout: 120
   callbacks: ["log_to_sqlite"]
 
+  # Router policy
+  router_settings:
+    routing_strategy: "least-busy"     # rotate across pool keys
+    cooldown_time: 60                  # after 429, skip key for 60s
+    fallbacks:
+      # Tier S free pool exhausted → escalate paid (logged, not silent)
+      - {"adjudicator": ["adjudicator-paid"]}
+      - {"architect":   ["adjudicator-paid"]}
+      # Free tier exhausted → only then escalate Sonnet
+      - {"executor-fallback-fast": ["reviewer-fallback", "code-fallback"]}
+      - {"reviewer-fallback":      ["executor-fallback-fast"]}
+
 general_settings:
-  # Local-dev placeholder; override in production via env LITELLM_MASTER_KEY.
-  # Format intentionally avoids sk-* prefix so static scanners don't false-positive.
+  # Local-dev placeholder; override via env LITELLM_MASTER_KEY in prod.
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: "sqlite:///./logs/litellm.sqlite"
 

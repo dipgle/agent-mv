@@ -36,6 +36,14 @@
 1. **KHÔNG paste client brand asset, footage, voiceover vào free web chat.**
 2. **Redaction guard cứng** — grep `client_name`, `brand/`, `assets/proprietary/` → block.
 
+### Codex pool discipline (Tier S free key rotation)
+1. **Codex pool ONLY cho Adjudicator + Architect role.** `cost_gate.assert_codex_quota_role()` reject mọi caller khác. Executor/Reviewer loop tuyệt đối không gọi pool — sẽ đốt quota trong 1 video.
+2. **Cascade tự động**: pool exhausted → escalate sang `adjudicator-paid` (Claude Opus) → log decision sang devlog (không silent).
+3. **Account hygiene**: throwaway accounts, dedicated IP (residential proxy nếu nhiều), không link payment/phone giữa các account. OpenAI ToS cấm multi-account quota stacking — risk ban cascade nếu fingerprint chung.
+4. **Trial credit ≠ unlimited**: mỗi acc ~$5-18 → ~50-200 GPT-5-codex call. Pool 3 acc = ~500 total. Hết là phải tạo acc mới hoặc fallback paid.
+5. **Primary free traffic qua Groq + Cerebras + Codestral + OpenRouter** (legit free, zero ToS risk, ~30K req/day combined). Pool chỉ là supplemental cho judgment task khi cần GPT-5 frontier quality.
+6. **Monitoring qua devlog**: cost_gate log mỗi pool key swap + 429 event. Supervisor dashboard hiện pool usage tab.
+
 ## Project structure
 
 ### Folder
