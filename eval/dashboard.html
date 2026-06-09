@@ -125,6 +125,40 @@
       </table>
     </div>
   </div>
+
+  <div style="height:16px"></div>
+
+  <!-- Panel reliability card -->
+  <div class="card">
+    <h2>Panel reliability</h2>
+    <div class="grid">
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:6px;text-transform:uppercase">
+          Recent timeouts (last 7 days)
+        </div>
+        <table id="panel-timeouts">
+          <thead><tr><th>Model</th><th>Day</th><th>Timeouts</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty">No timeout data</td></tr></tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#888;margin-bottom:6px;text-transform:uppercase">
+          Breaker state per model
+        </div>
+        <table id="panel-breakers">
+          <thead><tr><th>Model</th><th>State</th><th>Last skip</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty">No breaker events</td></tr></tbody>
+        </table>
+        <div style="margin-top:10px;font-size:11px;color:#888;text-transform:uppercase">
+          Partial panel runs (last 7 days)
+        </div>
+        <table id="panel-partial" style="margin-top:4px">
+          <thead><tr><th>Day</th><th>Partial runs</th><th>With votes</th></tr></thead>
+          <tbody><tr><td colspan="3" class="empty">No partial panels</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ─── COST TAB (default) ───────────────────────────────────────────── -->
@@ -432,6 +466,48 @@ function renderCalibration(data) {
   document.getElementById('hook-cal').innerHTML = fmt(data.hook);
 }
 
+// ─── Panel reliability renderers ─────────────────────────────────────────
+
+function renderPanelTimeouts(rows) {
+  const tb = document.querySelector('#panel-timeouts tbody');
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><code>${r.model || '?'}</code></td>
+      <td>${r.day || ''}</td>
+      <td class="${r.timeout_count > 5 ? 'fail' : r.timeout_count > 2 ? 'warn' : ''}">
+        ${r.timeout_count}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderPanelBreakers(rows) {
+  const tb = document.querySelector('#panel-breakers tbody');
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => {
+    const open = r.breaker_state === 'open';
+    return `
+      <tr>
+        <td><code>${r.model || '?'}</code></td>
+        <td class="${open ? 'fail' : 'pass'}">${open ? 'OPEN' : 'closed'}</td>
+        <td>${(r.last_skip_at || '').slice(0, 16).replace('T', ' ')}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderPanelPartial(rows) {
+  const tb = document.querySelector('#panel-partial tbody');
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td>${r.day || ''}</td>
+      <td class="${r.partial_runs > 3 ? 'warn' : ''}">${r.partial_runs}</td>
+      <td>${r.runs_with_votes != null ? r.runs_with_votes : '-'}</td>
+    </tr>
+  `).join('');
+}
+
 async function tick() {
   renderMTD(await getJSON('/eval/api/cost/mtd'));
   renderTopSpend(await getJSON('/eval/api/cost/top_spend'));
@@ -442,6 +518,10 @@ async function tick() {
   renderOutcomesSummary(await getJSON('/eval/api/outcomes/summary'));
   renderChampions(await getJSON('/eval/api/champions'));
   renderCalibration(await getJSON('/eval/api/calibration/latest'));
+  // Panel reliability
+  renderPanelTimeouts(await getJSON('/eval/api/panel/timeouts'));
+  renderPanelBreakers(await getJSON('/eval/api/panel/breakers'));
+  renderPanelPartial(await getJSON('/eval/api/panel/partial'));
 }
 
 tick();
