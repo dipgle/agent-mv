@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  syntax:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check orchestrator/ scripts/ eval/
+      - name: Python AST syntax check
+        run: |
+          python -c "
+          import ast
+          from pathlib import Path
+
+          errors = []
+          for p in Path('.').rglob('*.py'):
+              try:
+                  ast.parse(open(p).read())
+              except SyntaxError as e:
+                  errors.append(f'{p}: {e}')
+
+          if errors:
+              print('\n'.join(errors))
+              exit(1)
+          "
+
+  shell-lint:
+    name: Shell Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax check
+        run: |
+          for file in orchestrator/cron/*.sh infra/*.sh scripts/*.sh run.sh; do
+            if [ -f "$file" ]; then
+              bash -n "$file" || exit 1
+            fi
+          done
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+      - name: ShellCheck lint
+        continue-on-error: true
+        run: |
+          for file in orchestrator/cron/*.sh infra/*.sh scripts/*.sh run.sh; do
+            if [ -f "$file" ]; then
+              shellcheck "$file" || true
+            fi
+          done
+
+  schema:
+    name: SQL Schema Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install sqlite3
+        run: sudo apt-get install -y sqlite3
+      - name: Validate SQL schema
+        run: sqlite3 :memory: < eval/schema.sql
+
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Install sqlite3
+        run: sudo apt-get install -y sqlite3
+      - name: Create minimal test devlog
+        run: |
+          mkdir -p logs
+          sqlite3 logs/devlog.sqlite < eval/schema.sql
+      - name: Verify audit.py imports
+        run: python -c "from orchestrator.supervisor import audit; print('audit.py OK')"
+      - name: Verify cost_rollup.py imports
+        run: python -c "from orchestrator.supervisor import cost_rollup; print('cost_rollup.py OK')"
+      - name: Smoke test cost gate
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'orchestrator')
+          from lib.cost_gate import CostGate
+          gate = CostGate(devlog_path='logs/devlog.sqlite')
+          print('CostGate initialization OK')
+          "

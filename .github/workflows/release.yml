@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release:
+    name: Build Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set release version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Create source tarball
+        run: |
+          mkdir -p agent-mv-${{ steps.version.outputs.VERSION }}
+
+          # Copy source files (exclude weights, venv, logs, compiled)
+          rsync -av \
+            --exclude='*.pyc' \
+            --exclude='__pycache__' \
+            --exclude='.venv' \
+            --exclude='venv' \
+            --exclude='logs/*.sqlite' \
+            --exclude='eval/golden_regression' \
+            --exclude='eval/benchmarks' \
+            --exclude='eval/reports' \
+            --exclude='eval/canary' \
+            --exclude='eval/champions' \
+            --exclude='out/' \
+            --exclude='video-projects/' \
+            --exclude='infra/comfy/ComfyUI' \
+            --exclude='.git' \
+            --exclude='.github/workflows' \
+            . agent-mv-${{ steps.version.outputs.VERSION }}/
+
+          tar -czf agent-mv-${{ steps.version.outputs.VERSION }}-src.tar.gz agent-mv-${{ steps.version.outputs.VERSION }}/
+      - name: Extract release notes from CHANGELOG
+        id: changelog
+        run: |
+          # Extract section for this version from CHANGELOG.md
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Remove 'v' prefix for matching
+          VERSION_NUM="${VERSION#v}"
+
+          # Extract from ## [VERSION] to next ## [ or EOF
+          python3 << 'EOF'
+          import re
+
+          version = "${{ steps.version.outputs.VERSION }}".lstrip('v')
+          with open('CHANGELOG.md', 'r') as f:
+              content = f.read()
+
+          # Pattern: ## [VERSION] ... until next ## [ or EOF
+          pattern = rf'## \[{re.escape(version)}\](.*?)(?=## \[|$)'
+          match = re.search(pattern, content, re.DOTALL)
+
+          if match:
+              notes = match.group(1).strip()
+          else:
+              notes = "See CHANGELOG.md for full details"
+
+          # Write to file for GitHub Actions
+          with open('/tmp/release_notes.txt', 'w') as f:
+              f.write(notes)
+          EOF
+
+          cat /tmp/release_notes.txt >> $GITHUB_OUTPUT
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          release_name: Release ${{ steps.version.outputs.VERSION }}
+          body_path: /tmp/release_notes.txt
+          draft: false
+          prerelease: false
+      - name: Upload tarball to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./agent-mv-${{ steps.version.outputs.VERSION }}-src.tar.gz
+          asset_name: agent-mv-${{ steps.version.outputs.VERSION }}-src.tar.gz
+          asset_content_type: application/gzip
