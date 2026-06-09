@@ -37,9 +37,42 @@
   .bar-fill { background: #4ade80; height: 100%; transition: width 0.3s; }
   .bar-fill.warn { background: #fbbf24; }
   .bar-fill.fail { background: #f87171; }
+  /* Auth modal */
+  #auth-modal {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.8); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  #auth-modal.visible { display: flex; }
+  #auth-modal .modal-box {
+    background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+    padding: 24px; width: 340px; max-width: 95vw;
+  }
+  #auth-modal h2 { margin: 0 0 8px; font-size: 15px; }
+  #auth-modal p { color: #888; font-size: 12px; margin: 0 0 16px; }
+  #auth-modal input {
+    width: 100%; background: #0f0f0f; border: 1px solid #333; color: #fff;
+    padding: 8px 10px; border-radius: 4px; font: inherit; margin-bottom: 10px;
+  }
+  #auth-modal button {
+    width: 100%; background: #60a5fa; border: 0; color: #000;
+    padding: 8px; border-radius: 4px; cursor: pointer; font: inherit; font-weight: 600;
+  }
+  #auth-error { color: #f87171; font-size: 12px; margin-top: 6px; display: none; }
 </style>
 </head>
 <body>
+
+<!-- Auth modal — shown when server returns 401 on first probe -->
+<div id="auth-modal">
+  <div class="modal-box">
+    <h2>Dashboard Auth</h2>
+    <p>This server requires a bearer token. Enter the value of <code>EVAL_SERVE_TOKEN</code>.</p>
+    <input type="password" id="token-input" placeholder="Bearer token" autocomplete="off" />
+    <button onclick="submitToken()">Unlock dashboard</button>
+    <div id="auth-error">Invalid token — try again.</div>
+  </div>
+</div>
 
 <h1>Video Pipeline — Eval & Cost Dashboard</h1>
 
@@ -56,6 +89,7 @@
   <button class="tab" data-panel="champions">🏆 Champions</button>
   <button class="tab" data-panel="calibration">🎯 Calibration</button>
   <button class="tab" data-panel="final">Final</button>
+  <button class="tab" data-panel="compliance">Compliance</button>
 </div>
 
 <!-- ─── OUTCOMES TAB (Tier 4 ground truth) ─────────────────────────── -->
@@ -198,6 +232,22 @@
 
   <div style="height:16px"></div>
 
+  <!-- Forecast card -->
+  <div class="grid">
+    <div class="card">
+      <h2>Cost forecast</h2>
+      <div id="forecast-projection" class="big-number">$—</div>
+      <div id="forecast-detail" style="margin-top:8px;font-size:12px;color:#888">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>Per-video moving avg (last 10)</h2>
+      <div id="forecast-per-video" class="big-number">$—</div>
+      <div id="forecast-per-video-detail" style="margin-top:8px;font-size:12px;color:#888">Loading...</div>
+    </div>
+  </div>
+
+  <div style="height:16px"></div>
+
   <div class="grid-full">
     <div class="card">
       <h2>Cost vs Watch-through (efficiency curve)</h2>
@@ -279,6 +329,72 @@
   <div class="card"><h2>Final video quality</h2><div class="empty">No data</div></div>
 </div>
 
+<!-- ─── COMPLIANCE TAB ───────────────────────────────────────────────── -->
+<div class="panel" id="compliance">
+  <div class="grid">
+    <div class="card">
+      <h2>Trademark index</h2>
+      <div id="trademark-count" class="big-number">— <small>logos</small></div>
+      <div id="trademark-hint" style="margin-top:8px;font-size:12px;color:#888">
+        Drop PNG/JPG files into <code>data/trademark_index/</code> to enable screening.
+      </div>
+    </div>
+    <div class="card">
+      <h2>C2PA embed status</h2>
+      <table id="c2pa-status">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Embedded</th>
+            <th>Signed</th>
+            <th>Last embed</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4" class="empty">No C2PA data — install c2pa-python</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div style="height:16px"></div>
+  <div class="card">
+    <h2>Recent moderation flags</h2>
+    <table id="moderation-flags">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Feature</th>
+          <th>Check</th>
+          <th>Severity</th>
+          <th>Categories</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="5" class="empty">No moderation flags recorded yet</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="height:16px"></div>
+  <div class="card" style="font-size:12px;color:#888">
+    <h2>About compliance checks</h2>
+    <p style="margin:0 0 6px">
+      Two layers run on every produced video before publish:
+    </p>
+    <ul style="margin:0;padding-left:16px;line-height:1.8">
+      <li><b>Content moderation</b>: NSFW (NudeNet), real-person face (OpenCV),
+          trademark similarity (CLIP), voice-clone consent check.
+          Critical → auto-reject. Major → flagged for human review.</li>
+      <li><b>C2PA Content Credentials</b>: embeds AI-disclosure manifest per EU AI Act
+          Article 50 + platform requirements (Meta, TikTok, YouTube).
+          Signed if <code>C2PA_SIGNING_KEY_PATH</code> env var is set; unsigned
+          Annotated Credentials otherwise.</li>
+    </ul>
+    <p style="margin:8px 0 0">
+      See <code>docs/c2pa.md</code> for full setup instructions.
+    </p>
+  </div>
+</div>
+
 <script>
 document.querySelectorAll('.tab').forEach(b => {
   b.onclick = () => {
@@ -289,15 +405,76 @@ document.querySelectorAll('.tab').forEach(b => {
   };
 });
 
+// ─── Auth ─────────────────────────────────────────────────────────────
+// Token is stored in sessionStorage (clears on tab close, never persisted
+// to localStorage or cookies).
+
+const AUTH_KEY = 'eval_serve_token';
+
+function getToken() {
+  return sessionStorage.getItem(AUTH_KEY) || '';
+}
+
+function setToken(t) {
+  sessionStorage.setItem(AUTH_KEY, t);
+}
+
+function showAuthModal() {
+  document.getElementById('auth-modal').classList.add('visible');
+  document.getElementById('token-input').focus();
+}
+
+function hideAuthModal() {
+  document.getElementById('auth-modal').classList.remove('visible');
+  document.getElementById('auth-error').style.display = 'none';
+}
+
+async function submitToken() {
+  const t = document.getElementById('token-input').value.trim();
+  if (!t) return;
+  // Probe the health endpoint with the supplied token.
+  const r = await fetch('/health', {
+    headers: { 'Authorization': 'Bearer ' + t }
+  }).catch(() => null);
+  if (r && r.ok) {
+    setToken(t);
+    hideAuthModal();
+    tick();
+  } else {
+    document.getElementById('auth-error').style.display = 'block';
+  }
+}
+
+// Enter key in token input triggers submit.
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitToken();
+});
+
 // ─── Data fetching ────────────────────────────────────────────────────
-// In production: small Python HTTP server reads SQLite and exposes JSON.
-// For now, this is a placeholder polling /eval/api/* endpoints.
-// To wire: `python -m orchestrator.eval.serve_api` (TODO).
+// Attaches Authorization header when a token is stored in sessionStorage.
 
 async function getJSON(url) {
-  try { const r = await fetch(url); return r.ok ? await r.json() : null; }
-  catch { return null; }
+  const token = getToken();
+  const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  try {
+    const r = await fetch(url, { headers });
+    if (r.status === 401) {
+      showAuthModal();
+      return null;
+    }
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
 }
+
+// On first load, probe /health to see if auth is required.
+(async () => {
+  const r = await fetch('/health').catch(() => null);
+  if (r && r.status === 401 && !getToken()) {
+    showAuthModal();
+  }
+})();
 
 function renderMTD(data) {
   if (!data) return;
@@ -508,10 +685,46 @@ function renderPanelPartial(rows) {
   `).join('');
 }
 
+function renderForecast(data) {
+  if (!data) return;
+  const proj = data.monthly_projection_usd || 0;
+  const cap = data.cap_usd || 500;
+  const rate = data.daily_rate_usd || 0;
+  const days = data.days_remaining_in_month || 0;
+  const eta = data.eta_days_to_cap;
+
+  // Projection number styled by risk.
+  const pct = cap > 0 ? proj / cap * 100 : 0;
+  const cls = pct > 100 ? 'fail' : pct > 90 ? 'warn' : '';
+  document.getElementById('forecast-projection').innerHTML =
+    `<span class="${cls}">$${proj.toFixed(2)}</span> <small>projected month-end</small>`;
+  const etaStr = eta != null ? ` · ETA to cap: <b class="warn">${Math.round(eta)}d</b>` : '';
+  document.getElementById('forecast-detail').innerHTML =
+    `$${rate.toFixed(2)}/day · ${days} days left${etaStr}`;
+
+  // Per-video moving avg.
+  const avg = data.per_video_moving_avg_usd || 0;
+  const n = data.per_video_n_videos || 0;
+  document.getElementById('forecast-per-video').innerHTML =
+    `$${avg.toFixed(4)}`;
+  document.getElementById('forecast-per-video-detail').textContent =
+    `avg of last ${n || '?'} videos`;
+}
+
+// Map forecast response fields (serve.py returns unified object).
+function normForecast(data) {
+  if (!data) return null;
+  return Object.assign({}, data, {
+    per_video_moving_avg_usd: data.per_video_moving_avg_usd,
+    per_video_n_videos: data.n_videos != null ? data.n_videos : null,
+  });
+}
+
 async function tick() {
   renderMTD(await getJSON('/eval/api/cost/mtd'));
   renderTopSpend(await getJSON('/eval/api/cost/top_spend'));
   renderSpendModel(await getJSON('/eval/api/cost/spend_per_model'));
+  renderForecast(normForecast(await getJSON('/eval/api/cost/forecast')));
   renderProposals(await getJSON('/eval/api/proposals/pending'));
   renderEvalRecent(await getJSON('/eval/api/eval/recent'));
   renderOutcomesLatest(await getJSON('/eval/api/outcomes/latest'));
@@ -522,6 +735,64 @@ async function tick() {
   renderPanelTimeouts(await getJSON('/eval/api/panel/timeouts'));
   renderPanelBreakers(await getJSON('/eval/api/panel/breakers'));
   renderPanelPartial(await getJSON('/eval/api/panel/partial'));
+  // Compliance
+  renderTrademarkSize(await getJSON('/eval/api/compliance/trademark_size'));
+  renderC2PAStatus(await getJSON('/eval/api/c2pa/status'));
+  renderModerationFlags(await getJSON('/eval/api/moderation/recent'));
+}
+
+// ─── Compliance tab renderers ─────────────────────────────────────────────
+
+function renderTrademarkSize(data) {
+  const el = document.getElementById('trademark-count');
+  if (!el || !data) return;
+  const count = data.count || 0;
+  el.innerHTML = `${count} <small>logo${count !== 1 ? 's' : ''}</small>`;
+  const hint = document.getElementById('trademark-hint');
+  if (hint) {
+    hint.textContent = count === 0
+      ? 'Index empty — add PNG/JPG files to data/trademark_index/ to enable screening.'
+      : `${count} trademark image${count !== 1 ? 's' : ''} indexed in ${data.path || 'data/trademark_index/'}.`;
+  }
+}
+
+function renderC2PAStatus(rows) {
+  const tb = document.querySelector('#c2pa-status tbody');
+  if (!tb) return;
+  if (!rows || !rows.length) return;
+  tb.innerHTML = rows.map(r => {
+    const emb = r.embedded ? '<span class="pass">yes</span>' : '<span class="fail">no</span>';
+    const sig = r.signed == null ? '-' : (r.signed ? '<span class="pass">signed</span>' : 'unsigned');
+    const ts = (r.last_embed_ts || '').slice(0, 16).replace('T', ' ');
+    return `
+      <tr>
+        <td><code>${r.feature_id}</code></td>
+        <td>${emb}${r.skipped ? ' <span class="warn">(lib missing)</span>' : ''}${r.error ? ' <span class="fail">(error)</span>' : ''}</td>
+        <td>${sig}</td>
+        <td>${ts}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderModerationFlags(rows) {
+  const tb = document.querySelector('#moderation-flags tbody');
+  if (!tb) return;
+  const flagged = (rows || []).filter(r => r.flagged == 1);
+  if (!flagged.length) return;
+  tb.innerHTML = flagged.map(r => {
+    const sevCls = r.severity === 'critical' ? 'fail' :
+                   r.severity === 'major'    ? 'warn' : '';
+    let cats = r.categories_json || '';
+    try { cats = JSON.parse(cats).join(', '); } catch { /* raw string ok */ }
+    return `
+      <tr>
+        <td>${(r.ts || '').slice(0, 16).replace('T', ' ')}</td>
+        <td><code>${r.feature_id}</code></td>
+        <td>${r.check_name || '?'}</td>
+        <td class="${sevCls}">${r.severity}</td>
+        <td>${cats}</td>
+      </tr>`;
+  }).join('');
 }
 
 tick();

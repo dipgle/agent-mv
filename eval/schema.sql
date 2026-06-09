@@ -507,3 +507,27 @@ WHERE kind IN ('c2pa_embedded', 'c2pa_skipped', 'c2pa_error')
   AND ref_id != ''
 GROUP BY ref_id
 ORDER BY last_embed_ts DESC;
+
+
+-- ─── Cost alerts (supervisor/cost_rollup.py alerting) ──────────────────────
+-- Each row is one dispatched alert (webhook or devlog-only).
+-- kind='cost_alert_sent' is written by maybe_send_alert() with 24h de-dup.
+-- Levels: INFO (75%), WARN (90%), CRITICAL (100%+).
+-- Apply: sqlite3 logs/devlog.sqlite < eval/schema.sql
+CREATE VIEW IF NOT EXISTS cost_alerts AS
+SELECT
+    id,
+    ts,
+    ref_id                                            AS report_date,
+    json_extract(content, '$.level')                  AS level,
+    CAST(json_extract(content, '$.burn_pct') AS REAL)  AS burn_pct,
+    CAST(json_extract(content, '$.spent_usd') AS REAL) AS spent_usd,
+    CAST(json_extract(content, '$.cap_usd') AS REAL)   AS cap_usd,
+    CAST(json_extract(content, '$.monthly_projection_usd') AS REAL)
+                                                      AS monthly_projection_usd,
+    CAST(json_extract(content, '$.daily_rate_usd') AS REAL) AS daily_rate_usd,
+    json_extract(content, '$.eta_days_to_cap')        AS eta_days_to_cap,
+    json_extract(content, '$.message')                AS message
+FROM events
+WHERE kind = 'cost_alert_sent'
+ORDER BY ts DESC;

@@ -193,3 +193,61 @@ intended for commercial distribution.
    path in `cost_gate.py`, documented as personal/research only.
 6. Never add a blocked-license model to `infra/setup.sh` / `infra/setup.ps1`
    as a default download.
+
+## Compliance
+
+Two layers enforce legal compliance on every produced video before publish.
+Both are non-blocking when their optional dependencies are absent — they
+degrade gracefully with a logged warning rather than crashing the pipeline.
+
+### Layer A — Content moderation (`orchestrator/lib/moderation.py`)
+
+Runs as **Tier 0**, before Tier 1 deterministic checks and before any LLM
+panel cost is incurred.
+
+| Check | Library | License | When it runs |
+|-------|---------|---------|--------------|
+| NSFW detection | NudeNet (`nudenet>=3.4.0`) | Apache 2.0 | Every reviewer pass |
+| Real-person face | OpenCV Haar cascade (already in deps) | LGPL | Every reviewer pass |
+| Trademark similarity | CLIP via `open-clip-torch>=2.24.0` | MIT | Every reviewer pass; skipped if `data/trademark_index/` is empty |
+| Voice clone consent | Brand JSON field check (no extra dep) | — | Every reviewer pass |
+
+**Severity levels:**
+- `critical` → pipeline auto-rejects immediately; no LLM cost burned.
+  Example: explicit exposed content detected by NudeNet.
+- `major` → video is not blocked automatically; Reviewer panel is informed
+  and the flag appears in `critique.json` + dashboard Compliance tab.
+  Examples: face detected without consent confirmation, near-trademark match.
+- `ok` → no issue; pipeline continues normally.
+
+**Trademark index:** drop PNG/JPG logo files into `data/trademark_index/`.
+The pipeline builds `trademark_embeddings.npz` on first run.  Empty index →
+check is silently skipped.  See `data/trademark_index/README.md`.
+
+### Layer B — C2PA Content Credentials (`orchestrator/lib/c2pa.py`)
+
+Runs immediately after `ffmpeg` compose (inside `compose()`), before the
+Reviewer sees the video.
+
+Embeds a machine-readable AI-disclosure manifest into `final.mp4` containing:
+- `c2pa.aiGenerated` action with `trainedAlgorithmicMedia` source type
+- `c2pa.training-mining: notAllowed` (training opt-out)
+- `agent-mv.pipeline` custom assertion with feature_id + model stack
+
+**Signing:**
+- Set `C2PA_SIGNING_KEY_PATH` + `C2PA_CERT_CHAIN_PATH` for signed credentials.
+- Without env vars: unsigned Annotated Credentials (sufficient for most platforms).
+- Dev cert: `python orchestrator/lib/c2pa.py gen-cert --out certs/dev`
+
+**Inspect a video's credentials:**
+```bash
+c2patool out/VID-001/final.mp4        # official CLI
+python -c "from orchestrator.lib.c2pa import verify; from pathlib import Path; print(verify(Path('out/VID-001/final.mp4')))"
+```
+
+Full documentation: `docs/c2pa.md`
+
+**Dashboard:** eval/dashboard.html → Compliance tab shows:
+- Moderation flags (table, severity-colored)
+- C2PA embed status per video
+- Trademark index size

@@ -600,32 +600,99 @@ Expected output: `eval/reports/` populated with `.md` files.
 
 **Diagnosis:**
 ```bash
-# Check if serve.py is running
-curl http://localhost:5000/eval/metrics
-
-# Expected: JSON with cost, audit, proposal data
+# Check if serve.py is running (default port 7891)
+curl http://localhost:7891/health
+# Expected: {"ok": true, "schema_version": 2, "uptime_s": ..., "requests_last_min": ...}
 ```
 
 **Fix:**
 1. **Start the dashboard server**:
    ```bash
    python eval/serve.py
+   # Or with a custom port:
+   python eval/serve.py --port 8765
    ```
 
-2. **Verify port 5000 is free**:
+2. **Verify port 7891 is free**:
    ```bash
    # macOS/Linux
-   lsof -i :5000
+   lsof -i :7891
    
    # Windows
-   netstat -ano | findstr :5000
+   netstat -ano | findstr :7891
    ```
 
 3. **Try alternate port**:
    ```bash
-   python eval/serve.py --port 5001
-   # Then visit http://localhost:5001/dashboard.html
+   python eval/serve.py --port 8001
+   # Then visit http://localhost:8001/
    ```
+
+### Auth troubleshooting (401 Unauthorized)
+
+`eval/serve.py` runs in two modes controlled by the `EVAL_SERVE_TOKEN` environment variable.
+
+#### Mode 1: Localhost-only (default, no token needed)
+
+When `EVAL_SERVE_TOKEN` is **not set**:
+- Server binds to `127.0.0.1` only (any `--host` argument is silently overridden)
+- No `Authorization` header is required
+- Rate limit: 100 req/min per IP
+
+```bash
+# Start in localhost-only mode (default)
+python eval/serve.py
+# Access: http://localhost:7891/
+```
+
+#### Mode 2: Auth-required (LAN / internet-exposed)
+
+When `EVAL_SERVE_TOKEN` **is set**:
+- Server accepts the `--host` argument (can bind 0.0.0.0 or a specific interface)
+- Every `/eval/api/*` request must include `Authorization: Bearer <token>`
+- Public endpoints that bypass auth: `/health`, `/` (dashboard HTML)
+- Rate limit: 100 req/min for authenticated requests, 10 req/min for unauthenticated
+
+```bash
+# Generate a strong token
+TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+echo "EVAL_SERVE_TOKEN=$TOKEN" >> .env
+
+# Start in auth mode (accessible from LAN or internet)
+EVAL_SERVE_TOKEN=$TOKEN python eval/serve.py --host 0.0.0.0 --port 7891
+```
+
+**Dashboard prompt**: When the server requires auth, the dashboard HTML shows a
+token-input modal automatically on first load. Enter the same value you set for
+`EVAL_SERVE_TOKEN`. The token is kept in `sessionStorage` (clears on tab close).
+
+**curl test**:
+```bash
+# Health check — always public (no token needed)
+curl http://yourhost:7891/health
+
+# API endpoint — requires token
+TOKEN="your-token-here"
+curl -H "Authorization: Bearer $TOKEN" http://yourhost:7891/eval/api/cost/mtd
+```
+
+**Common 401 causes**:
+| Symptom | Cause | Fix |
+|---|---|---|
+| `curl /eval/api/cost/mtd` → 401 | Token not passed | Add `-H "Authorization: Bearer <token>"` |
+| Dashboard modal appears on every refresh | sessionStorage cleared (incognito / tab close) | Re-enter token in the modal |
+| `curl /health` → 401 unexpectedly | Reverse proxy stripping responses | Check proxy config; /health must be passed through |
+| Wrong token error | Mismatch between server env var and what you typed | Verify with `echo $EVAL_SERVE_TOKEN` on the server |
+
+**Rate limit 429**: If you hit `{"error": "Too Many Requests"}`, wait 60 seconds.
+Authenticated sessions get 100 req/min; unauthenticated (localhost mode) get 10 req/min.
+
+**Access log** for debugging (rotates at 10 MB, keeps 3 backups):
+```bash
+tail -f logs/eval_serve_access.log
+# Format: [ISO8601] METHOD PATH STATUS LATENCY_MS BYTES IP TOKEN_HASH[:8]
+# TOKEN_HASH is SHA-256[:8] — safe to share, never the raw token
+```
 
 ### Devlog empty (no data to display)
 

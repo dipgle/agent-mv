@@ -325,6 +325,133 @@ After running `orchestrator/cron/daily.sh` every day:
 
 4. **Adjust next month**: Update `MAX_COST_PER_MONTH_USD` if needed
 
+## Forecasting & Alerts
+
+`supervisor/cost_rollup.py` includes a built-in forecasting engine and webhook
+alerting system. Both run every time the daily cron fires.
+
+### Forecast methodology
+
+Two independent projections are computed on every run:
+
+| Metric | How computed | Where used |
+|---|---|---|
+| **Monthly projection** | `mtd_spent + days_remaining × avg_daily_rate` (linear, last 7d) | Report "## Forecast" section + `/eval/api/cost/forecast` endpoint |
+| **Per-video moving avg** | Average cost of last 10 completed videos | Same report + dashboard Forecast card |
+
+The forecast uses only stdlib + SQLite (no numpy needed). The 7-day window
+avoids one-off spikes dominating the projection — adjust the window by editing
+`forecast_monthly()` in `cost_rollup.py` if your burn pattern is more volatile.
+
+### Alert levels
+
+Three thresholds trigger progressively louder events:
+
+| Burn % | Level | devlog event kind | Emergency event |
+|---|---|---|---|
+| ≥ 75% | INFO | `cost_alert_sent` | No |
+| ≥ 90% | WARN | `cost_alert_sent` | No |
+| ≥ 100% | CRITICAL | `cost_alert_sent` | Yes (`kind=emergency`) |
+
+De-duplication: alerts are suppressed if one was already sent within the last 24h.
+The `cost_alerts` VIEW in `eval/schema.sql` surfaces all sent alerts with level,
+burn%, projection, and ETA.
+
+### Webhook setup
+
+Set `COST_ALERT_WEBHOOK_URL` in your `.env` file. The payload is a single-field
+JSON `{"text": "<message>"}` — compatible with Slack, Discord, and any generic
+webhook that accepts POST JSON.
+
+#### Slack incoming webhook
+
+1. Go to https://api.slack.com/apps → Your App → Incoming Webhooks → Add New Webhook
+2. Copy the URL (`https://hooks.slack.com/services/T.../B.../xxx`)
+3. Add to `.env`:
+   ```
+   COST_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
+   ```
+
+Example message received in Slack:
+```
+[WARN] Budget alert: $450.00 / $500.00 (90.0%) — current rate $22.50/day projects
+$517.50 by month-end · ETA to cap: 2 days
+```
+
+#### Discord webhook
+
+1. Go to your Discord server → Channel Settings → Integrations → Webhooks → New Webhook
+2. Copy the URL (`https://discord.com/api/webhooks/<id>/<token>`)
+3. Add to `.env`:
+   ```
+   COST_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
+   ```
+
+Discord accepts `{"text": "..."}` directly (no additional wrapping needed).
+
+#### Generic webhook (e.g. custom Slack-compatible endpoint)
+
+Any server that accepts `POST <url>` with body `{"text": "<message>"}` and
+Content-Type: `application/json` will work. Example test with curl:
+
+```bash
+# Test your endpoint locally
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"text": "test alert from eval pipeline"}' \
+  "$COST_ALERT_WEBHOOK_URL"
+```
+
+#### Devlog-only mode (no webhook)
+
+Leave `COST_ALERT_WEBHOOK_URL` empty. Alerts are recorded in devlog and visible in:
+
+```bash
+sqlite3 logs/devlog.sqlite "SELECT ts, level, burn_pct, message FROM cost_alerts ORDER BY ts DESC LIMIT 10"
+```
+
+### Customising alert thresholds
+
+```bash
+# Receive all three levels (INFO + WARN + CRITICAL) — default
+COST_ALERT_THRESHOLD_PCT=75
+
+# Only WARN + CRITICAL (skip INFO)
+COST_ALERT_THRESHOLD_PCT=90
+
+# Only CRITICAL (over-budget only)
+COST_ALERT_THRESHOLD_PCT=100
+```
+
+The `COST_ALERT_THRESHOLD_PCT` env var controls the **first** threshold. Levels
+above it are always included — they are hardcoded in `ALERT_LEVELS` in
+`cost_rollup.py`.
+
+### Forecast API endpoint
+
+The live forecast snapshot is available at `/eval/api/cost/forecast`:
+
+```bash
+curl http://localhost:7891/eval/api/cost/forecast
+```
+
+Response:
+```json
+{
+  "monthly_projection_usd": 485.00,
+  "daily_rate_usd": 22.50,
+  "per_video_moving_avg_usd": 4.32,
+  "eta_days_to_cap": 2.2,
+  "mtd_spent_usd": 450.00,
+  "cap_usd": 500.00,
+  "days_remaining_in_month": 8,
+  "days_in_month": 30
+}
+```
+
+The dashboard Cost tab shows this in the "Cost forecast" and "Per-video moving avg"
+cards, updated on every 30s poll.
+
 ---
 
 See also:
